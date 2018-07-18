@@ -43,6 +43,10 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	err = crdv1.CreateCLBCRD(clientset)
+	if err != nil {
+		panic(err)
+	}
 
 	// Wait for the CRD to be created before we use it (only needed if its a new one)
 	time.Sleep(3 * time.Second)
@@ -57,7 +61,7 @@ func main() {
 	albclient := client.AlbClient(crdcs, scheme, "default")
 
 	// Test: Create a new AppLoadBalance object and write to k8s
-	lb := &crdv1.AppLoadBalance{
+	alb := &crdv1.AppLoadBalance{
 		ObjectMeta: meta_v1.ObjectMeta{
 			Name:   "lb123",
 			Labels: map[string]string{"mylabel": "test"},
@@ -86,7 +90,7 @@ func main() {
 		},
 	}
 
-	result, err := albclient.Create(lb)
+	result, err := albclient.Create(alb)
 	if err == nil {
 		glog.V(3).Infof("CREATED: %#v", result)
 	} else if apierrors.IsAlreadyExists(err) {
@@ -101,6 +105,39 @@ func main() {
 		panic(err)
 	}
 	glog.V(3).Infof("List: \n%v", items)
+	
+	
+	// Create a CRD client interface
+	clbclient := client.ClbClient(crdcs, scheme, "default")
+
+	// Test: Create a new AppLoadBalance object and write to k8s
+	clb := &crdv1.ClassicLoadBalance{
+		ObjectMeta: meta_v1.ObjectMeta{
+			Name:   "clb123",
+			Labels: map[string]string{"mylabel": "test"},
+		},
+		Spec: crdv1.ClassicLoadBalanceSpec{
+			IP: "10.0.12.168",
+			Port: "80",
+			Backend: crdv1.ClassicLoadBalanceBackend{
+				ServiceName : "demosvc",
+				ServicePort : 80,
+			},
+		},
+		Status: crdv1.ClassicLoadBalanceStatus{
+			State:   "created",
+			Message: "Created, not processed yet",
+		},
+	}
+
+	resultclb, err := clbclient.Create(clb)
+	if err == nil {
+		glog.V(3).Infof("CREATED: %#v", resultclb)
+	} else if apierrors.IsAlreadyExists(err) {
+		glog.V(3).Infof("ALREADY EXISTS: %#v", resultclb)
+	} else {
+		panic(err)
+	}	
 
 	// AppLoadBalance Controller
 	// Watch for changes in AppLoadBalance objects and fire Add, Delete, Update callbacks

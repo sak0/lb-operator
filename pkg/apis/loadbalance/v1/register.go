@@ -87,6 +87,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(SchemeGroupVersion,
 		&AppLoadBalance{},
 		&AppLoadBalanceList{},
+		&ClassicLoadBalance{},
+		&ClassicLoadBalanceList{},
 	)
 	meta_v1.AddToGroupVersion(scheme, SchemeGroupVersion)
 	return nil
