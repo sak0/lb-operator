@@ -2,6 +2,7 @@ package v1
 
 import (
 	"reflect"
+	"github.com/golang/glog"
 
 	apiextv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	apiextcs "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -44,6 +45,7 @@ func CreateALBCRD(clientset apiextcs.Interface) error {
 
 	_, err := clientset.ApiextensionsV1beta1().CustomResourceDefinitions().Create(crd)
 	if err != nil && apierrors.IsAlreadyExists(err) {
+		glog.V(2).Infof("CRD ALREADY EXISTS: %#v", crd)
 		return nil
 	}
 	return err

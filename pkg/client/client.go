@@ -66,7 +66,8 @@ func (f *albclient) List(opts meta_v1.ListOptions) (*crdv1.AppLoadBalanceList, e
 
 // Create a new List watch for our TPR
 func (f *albclient) NewListWatch() *cache.ListWatch {
-	return cache.NewListWatchFromClient(f.cl, f.plural, f.ns, fields.Everything())
+	//return cache.NewListWatchFromClient(f.cl, f.plural, f.ns, fields.Everything())
+	return cache.NewListWatchFromClient(f.cl, f.plural, meta_v1.NamespaceAll, fields.Everything())
 }
 
 func NewClient(cfg *rest.Config) (*rest.RESTClient, *runtime.Scheme, error) {

@@ -88,9 +88,9 @@ func main() {
 
 	result, err := albclient.Create(lb)
 	if err == nil {
-		glog.V(2).Infof("CREATED: %#v", result)
+		glog.V(3).Infof("CREATED: %#v", result)
 	} else if apierrors.IsAlreadyExists(err) {
-		glog.V(2).Infof("ALREADY EXISTS: %#v", result)
+		glog.V(3).Infof("ALREADY EXISTS: %#v", result)
 	} else {
 		panic(err)
 	}
