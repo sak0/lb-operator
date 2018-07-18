@@ -14,11 +14,15 @@ import (
 	//"k8s.io/client-go/rest"
 )
 
-const (	
-	ALBPlural      string = "apploadbalance"
-	ALBGroup       string = "loadbalance.yonghui.cn"
-	ALBVersion     string = "v1"
-	FullALBName    string = ALBPlural + "." + ALBGroup
+const (
+	LBGroup			string = "loadbalance.yonghui.cn"	
+	LBVersion		string = "v1"	
+	
+	ALBPlural		string = "apploadbalance"
+	FullALBName		string = ALBPlural + "." + LBGroup
+
+	CLBPlural		string = "classicloadbalance"
+	FullCLBName		string = CLBPlural + "." + LBGroup
 )
 
 var (
@@ -32,8 +36,8 @@ func CreateALBCRD(clientset apiextcs.Interface) error {
 	crd := &apiextv1beta1.CustomResourceDefinition{
 		ObjectMeta: meta_v1.ObjectMeta{Name: FullALBName},
 		Spec: apiextv1beta1.CustomResourceDefinitionSpec{
-			Group:   ALBGroup,
-			Version: ALBVersion,
+			Group:   LBGroup,
+			Version: LBVersion,
 			Scope:   apiextv1beta1.NamespaceScoped,
 			Names:   apiextv1beta1.CustomResourceDefinitionNames{
 				Plural: ALBPlural,
@@ -45,14 +49,39 @@ func CreateALBCRD(clientset apiextcs.Interface) error {
 
 	_, err := clientset.ApiextensionsV1beta1().CustomResourceDefinitions().Create(crd)
 	if err != nil && apierrors.IsAlreadyExists(err) {
-		glog.V(2).Infof("CRD ALREADY EXISTS: %#v", crd)
+		glog.V(2).Infof("CRD-ALB ALREADY EXISTS: %#v", crd)
+		return nil
+	}
+	return err
+}
+
+// Create the CRD resource, ignore error if it already exists
+func CreateCLBCRD(clientset apiextcs.Interface) error {
+	shotName := []string{"clb"}
+	crd := &apiextv1beta1.CustomResourceDefinition{
+		ObjectMeta: meta_v1.ObjectMeta{Name: FullCLBName},
+		Spec: apiextv1beta1.CustomResourceDefinitionSpec{
+			Group:   LBGroup,
+			Version: LBVersion,
+			Scope:   apiextv1beta1.NamespaceScoped,
+			Names:   apiextv1beta1.CustomResourceDefinitionNames{
+				Plural: CLBPlural,
+				Kind:   reflect.TypeOf(ClassicLoadBalance{}).Name(),
+				ShortNames: shotName,
+			},
+		},
+	}
+
+	_, err := clientset.ApiextensionsV1beta1().CustomResourceDefinitions().Create(crd)
+	if err != nil && apierrors.IsAlreadyExists(err) {
+		glog.V(2).Infof("CRD-CLB ALREADY EXISTS: %#v", crd)
 		return nil
 	}
 	return err
 }
 
 // Create a Rest client with the new CRD Schema
-var SchemeGroupVersion = schema.GroupVersion{Group: ALBGroup, Version: ALBVersion}
+var SchemeGroupVersion = schema.GroupVersion{Group: LBGroup, Version: LBVersion}
 
 func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(SchemeGroupVersion,
