@@ -6,6 +6,7 @@ import (
 	
 	"github.com/golang/glog"
 	
+	"k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"	
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -23,6 +24,7 @@ type CLBController struct {
 	client			kubernetes.Interface
 	
 	clbController	cache.Controller
+	epController	cache.Controller
 }
 
 func NewCLBController(client kubernetes.Interface, crdClient *rest.RESTClient, 
@@ -33,6 +35,7 @@ func NewCLBController(client kubernetes.Interface, crdClient *rest.RESTClient,
 		client		: client,
 	}
 	
+	//Construction CLB Informer
 	clbListWatch := cache.NewListWatchFromClient(clbctr.crdClient, 
 		crdv1.CLBPlural, meta_v1.NamespaceAll, fields.Everything())
 	
@@ -48,6 +51,21 @@ func NewCLBController(client kubernetes.Interface, crdClient *rest.RESTClient,
 	)
 	clbctr.clbController = clbcontroller
 	
+	//Construction Endpoint Informer
+	epListWatch := cache.NewListWatchFromClient(client.Core().RESTClient(), 
+		"endpoints", meta_v1.NamespaceAll, fields.Everything())
+	_, epcontroller := cache.NewInformer(
+		epListWatch,
+		&v1.Endpoints{},
+		time.Minute*10,
+		cache.ResourceEventHandlerFuncs{
+			AddFunc: clbctr.onEpAdd,
+			DeleteFunc: clbctr.onEpDel,
+			UpdateFunc: clbctr.onEpUpdate,
+		},
+	)	
+	clbctr.epController = epcontroller
+	
 	return clbctr, nil
 }
 
@@ -61,6 +79,16 @@ func (c *CLBController)Run(ctx <-chan struct{}) {
 		glog.Errorf("clb informer initial sync timeout")
 		os.Exit(1)
 	}
+
+	glog.V(2).Infof("Endpoint Controller starting...")
+	go c.epController.Run(ctx)
+	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
+		return c.epController.HasSynced(), nil
+	})
+	if !c.epController.HasSynced() {
+		glog.Errorf("endpoint informer initial sync timeout")
+		os.Exit(1)
+	}	
 }
 
 func (c *CLBController)onClbAdd(obj interface{}) {
@@ -73,4 +101,16 @@ func (c *CLBController)onClbUpdate(oldObj, newObj interface{}) {
 
 func (c *CLBController)onClbDel(obj interface{}) {
 	glog.V(3).Infof("Del-CLB: %v", obj)
+}
+
+func (c *CLBController)onEpAdd(obj interface{}) {
+	glog.V(3).Infof("Add-Ep: %v", obj)
+}
+
+func (c *CLBController)onEpUpdate(oldObj, newObj interface{}) {
+	glog.V(3).Infof("Update-Ep: %v -> %v", oldObj, newObj)
+}
+
+func (c *CLBController)onEpDel(obj interface{}) {
+	glog.V(3).Infof("Del-Ep: %v", obj)
 }
