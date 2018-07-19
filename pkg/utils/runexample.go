@@ -7,6 +7,7 @@ import (
 	crdv1 "github.com/sak0/lb-operator/pkg/apis/loadbalance/v1"
 	
 	"k8s.io/apimachinery/pkg/runtime"	
+	apiextcs "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
@@ -97,4 +98,28 @@ func RunClbExample(crdClient *rest.RESTClient, crdScheme *runtime.Scheme){
 	} else {
 		panic(err)
 	}	
+}
+
+func InitAllCRD(extClient *apiextcs.Clientset)error{
+	// note: if the CRD exist our CreateCRD function is set to exit without an error
+	err := crdv1.CreateALBCRD(extClient)
+	if err != nil {
+		return err
+	}
+	err = crdv1.CreateCLBCRD(extClient)
+	if err != nil {
+		return err
+	}
+
+	// Wait for the CRD to be created before we use it (only needed if its a new one)
+	if err := WaitCRDReady(extClient, crdv1.FullALBName); err != nil {
+		glog.Errorf("Wait ALB Crd Create failed: %v", err)
+		return err
+	}
+	if err := WaitCRDReady(extClient, crdv1.FullCLBName); err != nil {
+		glog.Errorf("Wait CLB Crd Create failed: %v", err)
+		return err
+	}
+	
+	return nil
 }
