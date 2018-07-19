@@ -2,18 +2,21 @@ package main
 
 import (
 	"time"
+	"flag"
+	"os"
+	"os/signal"
+	"syscall"
+		
 	"github.com/golang/glog"
 
 	"github.com/sak0/lb-operator/pkg/client"
+	"github.com/sak0/lb-operator/pkg/controller"
+	"github.com/sak0/lb-operator/pkg/utils"
 	crdv1 "github.com/sak0/lb-operator/pkg/apis/loadbalance/v1"
-
+	
+	clientset "k8s.io/client-go/kubernetes"
 	apiextcs "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/cache"
-	//"k8s.io/client-go/tools/clientcmd"
-	"flag"
 )
 
 func GetClientConfig(kubeconfig string) (*rest.Config, error) {
@@ -25,6 +28,7 @@ func GetClientConfig(kubeconfig string) (*rest.Config, error) {
 
 func main() {
 	kubeconf := flag.String("kubeconf", "admin.conf", "Path to a kube config. Only required if out-of-cluster.")
+	runTest := flag.Bool("runtest", false, "If create test resource.")
 	flag.Parse()
 
 	config, err := GetClientConfig(*kubeconf)
@@ -32,18 +36,23 @@ func main() {
 		panic(err.Error())
 	}
 
-	// create clientset and create our CRD, this only need to run once
-	clientset, err := apiextcs.NewForConfig(config)
+	// create extclient and create our CRD, this only need to run once
+	extClient, err := apiextcs.NewForConfig(config)
+	if err != nil {
+		panic(err.Error())
+	}
+	
+	kubeClient, err := clientset.NewForConfig(config)
 	if err != nil {
 		panic(err.Error())
 	}
 
 	// note: if the CRD exist our CreateCRD function is set to exit without an error
-	err = crdv1.CreateALBCRD(clientset)
+	err = crdv1.CreateALBCRD(extClient)
 	if err != nil {
 		panic(err)
 	}
-	err = crdv1.CreateCLBCRD(clientset)
+	err = crdv1.CreateCLBCRD(extClient)
 	if err != nil {
 		panic(err)
 	}
@@ -56,130 +65,26 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
-	// Create a CRD client interface
-	albclient := client.AlbClient(crdcs, scheme, "default")
-
-	// Test: Create a new AppLoadBalance object and write to k8s
-	alb := &crdv1.AppLoadBalance{
-		ObjectMeta: meta_v1.ObjectMeta{
-			Name:   "lb123",
-			Labels: map[string]string{"mylabel": "test"},
-		},
-		Spec: crdv1.AppLoadBalanceSpec{
-			IP: "10.0.12.168",
-			Port: "80",
-			Rules: []crdv1.AppLoadBalanceRule{
-				crdv1.AppLoadBalanceRule{
-					Host : "ingress.yonghui.cn",
-					Paths : []crdv1.AppLoadBalancePath{
-						crdv1.AppLoadBalancePath{
-							Path : "/demo",
-							Backend : crdv1.AppLoadBalanceBackend{
-								ServiceName : "demoSvc",
-								ServicePort : 80,
-							},
-						},
-					},
-				},
-			},
-		},
-		Status: crdv1.AppLoadBalanceStatus{
-			State:   "created",
-			Message: "Created, not processed yet",
-		},
-	}
-
-	result, err := albclient.Create(alb)
-	if err == nil {
-		glog.V(3).Infof("CREATED: %#v", result)
-	} else if apierrors.IsAlreadyExists(err) {
-		glog.V(3).Infof("ALREADY EXISTS: %#v", result)
-	} else {
-		panic(err)
-	}
-
-	// List all AppLoadBalance objects
-	items, err := albclient.List(meta_v1.ListOptions{})
-	if err != nil {
-		panic(err)
-	}
-	glog.V(3).Infof("List: \n%v", items)
 	
-	
-	// Create a CRD client interface
-	clbclient := client.ClbClient(crdcs, scheme, "default")
-
-	// Test: Create a new AppLoadBalance object and write to k8s
-	clb := &crdv1.ClassicLoadBalance{
-		ObjectMeta: meta_v1.ObjectMeta{
-			Name:   "clb123",
-			Labels: map[string]string{"mylabel": "test"},
-		},
-		Spec: crdv1.ClassicLoadBalanceSpec{
-			IP: "10.0.12.168",
-			Port: "80",
-			Backends: []crdv1.ClassicLoadBalanceBackend{
-				crdv1.ClassicLoadBalanceBackend{
-					ServiceName : "demosvc",
-					ServicePort : 80,					
-				},
-			},
-		},
-		Status: crdv1.ClassicLoadBalanceStatus{
-			State:   "created",
-			Message: "Created, not processed yet",
-		},
+	if *runTest {
+		glog.V(2).Infof("Creating test resource...")
+		utils.RunAlbExample(crdcs, scheme)
+		utils.RunClbExample(crdcs, scheme)
 	}
-
-	resultclb, err := clbclient.Create(clb)
-	if err == nil {
-		glog.V(3).Infof("CREATED: %#v", resultclb)
-	} else if apierrors.IsAlreadyExists(err) {
-		glog.V(3).Infof("ALREADY EXISTS: %#v", resultclb)
-	} else {
-		panic(err)
-	}	
 
 	// AppLoadBalance Controller
 	// Watch for changes in AppLoadBalance objects and fire Add, Delete, Update callbacks
-	_, albcontroller := cache.NewInformer(
-		albclient.NewListWatch(),
-		&crdv1.AppLoadBalance{},
-		time.Minute*10,
-		cache.ResourceEventHandlerFuncs{
-			AddFunc: func(obj interface{}) {
-				glog.V(3).Infof("Add: %v", obj)
-			},
-			DeleteFunc: func(obj interface{}) {
-				glog.V(3).Infof("Delete: %v", obj)
-			},
-			UpdateFunc: func(oldObj, newObj interface{}) {
-				glog.V(3).Infof("Update old: %v \n New: %v", oldObj, newObj)
-			},
-		},
-	)
+	stopCh := make(chan struct{})
+	albctr, _ := controller.NewALBController(kubeClient, crdcs, scheme)
+	clbctr, _ := controller.NewCLBController(kubeClient, crdcs, scheme)
+	go albctr.Run(stopCh)
+	go clbctr.Run(stopCh)
 
-	stop := make(chan struct{})
-	go albcontroller.Run(stop)
 
-	_, clbcontroller := cache.NewInformer(
-		clbclient.NewListWatch(),
-		&crdv1.ClassicLoadBalance{},
-		time.Minute*10,
-		cache.ResourceEventHandlerFuncs{
-			AddFunc: func(obj interface{}) {
-				glog.V(3).Infof("Add-CLB: %v", obj)
-			},
-			DeleteFunc: func(obj interface{}) {
-				glog.V(3).Infof("Delete-CLB: %v", obj)
-			},
-			UpdateFunc: func(oldObj, newObj interface{}) {
-				glog.V(3).Infof("Update-CLB old: %v \n New: %v", oldObj, newObj)
-			},
-		},
-	)
-	go clbcontroller.Run(stop)	
-
-	select {}
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	glog.V(2).Infof("signal.Notify ready..")
+	<-c
+	close(stopCh)
+	glog.V(2).Infof("Bye bye...")
 }
