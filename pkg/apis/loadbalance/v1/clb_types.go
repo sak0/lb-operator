@@ -14,7 +14,9 @@ type ClassicLoadBalance struct {
 
 type ClassicLoadBalanceSpec struct {
 	IP			string						`json:"ip,omitempty"`
-	Port		string						`json:"port,omitempty"`
+	Port		string						`json:"port"`
+	Subnet		string						`json:"subnet,omitempty"`
+	Protocol	string						`json:"protocol"`
 	Backends	[]ClassicLoadBalanceBackend	`json:"backends,omitempty"`
 }
 

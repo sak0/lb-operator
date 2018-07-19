@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	
 	crdv1 "github.com/sak0/lb-operator/pkg/apis/loadbalance/v1"
+	driver "github.com/sak0/lb-operator/pkg/drivers"
 )
 
 type CLBController struct {
@@ -25,6 +26,8 @@ type CLBController struct {
 	
 	clbController	cache.Controller
 	epController	cache.Controller
+	
+	driver			driver.LbProvider			
 }
 
 func NewCLBController(client kubernetes.Interface, crdClient *rest.RESTClient, 
@@ -34,6 +37,8 @@ func NewCLBController(client kubernetes.Interface, crdClient *rest.RESTClient,
 		crdScheme 	: crdScheme,
 		client		: client,
 	}
+	driver, _ := driver.New("citrix")
+	clbctr.driver = driver
 	
 	//Construction CLB Informer
 	clbListWatch := cache.NewListWatchFromClient(clbctr.crdClient, 
@@ -92,7 +97,33 @@ func (c *CLBController)Run(ctx <-chan struct{}) {
 }
 
 func (c *CLBController)onClbAdd(obj interface{}) {
-	glog.V(3).Infof("Add-CLB: %v", obj)
+	clb := obj.(*crdv1.ClassicLoadBalance)
+	glog.V(3).Infof("Add-CLB: %#v", clb)
+	
+	var vip string
+	var err error
+	if clb.Spec.IP != "" {
+		vip = clb.Spec.IP
+	}
+	port := clb.Spec.Port
+	protocol := clb.Spec.Protocol
+	lbname, err := c.driver.CreateLb(vip, port, protocol)
+	if err != nil {
+		glog.Errorf("CreateLb failed : %v", err)
+		return
+	}
+	for _, backend := range clb.Spec.Backends {
+		err = c.driver.CreateSvcGroup(backend.ServiceName)
+		if err != nil {
+			glog.Errorf("CreateSvcGrp %s failed : %v", backend.ServiceName, err)
+			return			
+		}
+		err = c.driver.BindSvcGroupLb(lbname, backend.ServiceName)
+		if err != nil {
+			glog.Errorf("BindSvcGroup %s to Lb %s failed : %v", backend.ServiceName, lbname, err)
+			return			
+		}		
+	}
 }
 
 func (c *CLBController)onClbUpdate(oldObj, newObj interface{}) {
@@ -108,7 +139,7 @@ func (c *CLBController)onEpAdd(obj interface{}) {
 }
 
 func (c *CLBController)onEpUpdate(oldObj, newObj interface{}) {
-	glog.V(3).Infof("Update-Ep: %v -> %v", oldObj, newObj)
+	glog.V(4).Infof("Update-Ep: %v -> %v", oldObj, newObj)
 }
 
 func (c *CLBController)onEpDel(obj interface{}) {
