@@ -1,0 +1,17 @@
+apiVersion: loadbalance.yonghui.cn/v1
+kind: ClassicLoadBalance
+metadata:
+  name: demo
+  namespace: kube-system
+  annotations:
+    loadbalance.yonghui.cn/loadbalance.class: "citrix"
+spec:
+  ip: "10.0.12.170"
+  port: "30080"
+  backends:
+  - weight: 1
+    serviceName: demo-svc
+    servicePort: 80
+  - weight: 1
+    serviceName: demo-svc-v2
+    servicePort: 80
