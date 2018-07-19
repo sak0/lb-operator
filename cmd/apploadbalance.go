@@ -119,9 +119,11 @@ func main() {
 		Spec: crdv1.ClassicLoadBalanceSpec{
 			IP: "10.0.12.168",
 			Port: "80",
-			Backend: crdv1.ClassicLoadBalanceBackend{
-				ServiceName : "demosvc",
-				ServicePort : 80,
+			Backends: []crdv1.ClassicLoadBalanceBackend{
+				crdv1.ClassicLoadBalanceBackend{
+					ServiceName : "demosvc",
+					ServicePort : 80,					
+				},
 			},
 		},
 		Status: crdv1.ClassicLoadBalanceStatus{
@@ -141,7 +143,7 @@ func main() {
 
 	// AppLoadBalance Controller
 	// Watch for changes in AppLoadBalance objects and fire Add, Delete, Update callbacks
-	_, controller := cache.NewInformer(
+	_, albcontroller := cache.NewInformer(
 		albclient.NewListWatch(),
 		&crdv1.AppLoadBalance{},
 		time.Minute*10,
@@ -159,7 +161,25 @@ func main() {
 	)
 
 	stop := make(chan struct{})
-	go controller.Run(stop)
+	go albcontroller.Run(stop)
+
+	_, clbcontroller := cache.NewInformer(
+		clbclient.NewListWatch(),
+		&crdv1.ClassicLoadBalance{},
+		time.Minute*10,
+		cache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
+				glog.V(3).Infof("Add-CLB: %v", obj)
+			},
+			DeleteFunc: func(obj interface{}) {
+				glog.V(3).Infof("Delete-CLB: %v", obj)
+			},
+			UpdateFunc: func(oldObj, newObj interface{}) {
+				glog.V(3).Infof("Update-CLB old: %v \n New: %v", oldObj, newObj)
+			},
+		},
+	)
+	go clbcontroller.Run(stop)	
 
 	select {}
 }
