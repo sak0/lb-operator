@@ -21,16 +21,11 @@ const (
 
 type LbProvider interface {
 	CreateLb(string, string, string, string)(string, error)
-	DeleteLb(string, string)error
+	DeleteLb(string, string, string, string)error
 	CreateSvcGroup(string, string)error
 	BindSvcGroupLb(string, string, string)error
 	CreateSvc(string, string, int32, string)(string, error)
 	BindSvcToLb(string, string)error
-}
-
-func GenerateLbName(namespace string, host string) string {
-	lbName := "lb_" + strings.Replace(host, ".", "_", -1)
-	return lbName
 }
 
 func GenerateLbNameNew(namespace string, host string, path string) string {
@@ -50,6 +45,7 @@ func GenerateCsVserverName(namespace string, ingressName string) string {
 }
 
 type CitrixLb struct{}
+
 func (lb *CitrixLb)CreateLb(namespace string, vip string, port string, protocol string)(string, error) {
 	lbName := utils.GenerateLbNameCLB(namespace, vip, port, protocol)
 	portint, err := strconv.Atoi(port)
@@ -71,16 +67,27 @@ func (lb *CitrixLb)CreateLb(namespace string, vip string, port string, protocol 
 	
 	return lbName, nil
 }
+
 func (lb *CitrixLb)CreateSvcGroup(namespace string, groupname string)error{
 	return nil
 }
+
 func (lb *CitrixLb)BindSvcGroupLb(namespace string, groupname string, lbname string)error{
 	return nil
 }
-func (lb *CitrixLb)DeleteLb(namespace string, lbname string)error{
+
+func (lb *CitrixLb)DeleteLb(namespace string, vip string, port string, protocol string)error{
 	glog.V(2).Infof("Citrix Driver DeleteLb..")
+	lbName := utils.GenerateLbNameCLB(namespace, vip, port, protocol)
+	
+	client, _ := netscaler.NewNitroClientFromEnv()
+	err := client.DeleteResource(netscaler.Lbvserver.Type(), lbName)
+	if err != nil {
+		return err
+	}
 	return nil
 }
+
 func (lb *CitrixLb)CreateSvc(namespace string, ip string, port int32, protocol string)(string, error){
 	svcName := utils.GenerateSvcNameCLB(namespace, ip, port, protocol)
 	glog.V(2).Infof("Citrix Driver CreateSvc %s ", svcName)
@@ -94,7 +101,7 @@ func (lb *CitrixLb)CreateSvc(namespace string, ip string, port int32, protocol s
 	}
 	_, err := client.AddResource(netscaler.Service.Type(), svcName, &nsService)
 	if err != nil {
-		return "", err
+		return svcName, err
 	}
 	
 	return svcName, nil

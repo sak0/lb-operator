@@ -181,6 +181,9 @@ func (c *CLBController)onClbUpdate(oldObj, newObj interface{}) {
 
 func (c *CLBController)onClbDel(obj interface{}) {
 	glog.V(3).Infof("Del-CLB: %#v", obj)
+	clb := obj.(*crdv1.ClassicLoadBalance)
+	
+	c.driver.DeleteLb(clb.Namespace, clb.Spec.IP, clb.Spec.Port, clb.Spec.Protocol)
 }
 
 func (c *CLBController)onEpAdd(obj interface{}) {
