@@ -16,11 +16,11 @@ const (
 	CITRIXLBPROVIDER	 = "citrix"
 )
 
-type LbProvider interface{
-	CreateLb(string, string, string)(string, error)
-	DeleteLb(string)error
-	CreateSvcGroup(string)error
-	BindSvcGroupLb(string, string)error
+type LbProvider interface {
+	CreateLb(string, string, string, string)(string, error)
+	DeleteLb(string, string)error
+	CreateSvcGroup(string, string)error
+	BindSvcGroupLb(string, string, string)error
 }
 
 func GenerateLbName(namespace string, host string) string {
@@ -45,17 +45,17 @@ func GenerateCsVserverName(namespace string, ingressName string) string {
 }
 
 type CitrixLb struct{}
-func (lb *CitrixLb)CreateLb(vip string, port string, protocol string)(string, error) {
+func (lb *CitrixLb)CreateLb(namespace string, vip string, port string, protocol string)(string, error) {
 	glog.V(2).Infof("Citrix Driver CreateLB..")
 	return "testname", nil
 }
-func (lb *CitrixLb)CreateSvcGroup(groupname string)error{
+func (lb *CitrixLb)CreateSvcGroup(namespace string, groupname string)error{
 	return nil
 }
-func (lb *CitrixLb)BindSvcGroupLb(groupname string, lbname string)error{
+func (lb *CitrixLb)BindSvcGroupLb(namespace string, groupname string, lbname string)error{
 	return nil
 }
-func (lb *CitrixLb)DeleteLb(lbname string)error{
+func (lb *CitrixLb)DeleteLb(namespace string, lbname string)error{
 	glog.V(2).Infof("Citrix Driver DeleteLb..")
 	return nil
 }

@@ -3,6 +3,7 @@ package controller
 import (
 	"time"
 	"os"
+	"reflect"
 	
 	"github.com/golang/glog"
 	
@@ -27,6 +28,9 @@ type CLBController struct {
 	clbController	cache.Controller
 	epController	cache.Controller
 	
+	clbstore     	cache.Store
+	epstore			cache.Store
+	
 	driver			driver.LbProvider			
 }
 
@@ -44,7 +48,7 @@ func NewCLBController(client kubernetes.Interface, crdClient *rest.RESTClient,
 	clbListWatch := cache.NewListWatchFromClient(clbctr.crdClient, 
 		crdv1.CLBPlural, meta_v1.NamespaceAll, fields.Everything())
 	
-	_, clbcontroller := cache.NewInformer(
+	clbstore, clbcontroller := cache.NewInformer(
 		clbListWatch,
 		&crdv1.ClassicLoadBalance{},
 		time.Minute*10,
@@ -55,11 +59,12 @@ func NewCLBController(client kubernetes.Interface, crdClient *rest.RESTClient,
 		},
 	)
 	clbctr.clbController = clbcontroller
+	clbctr.clbstore = clbstore
 	
 	//Construction Endpoint Informer
 	epListWatch := cache.NewListWatchFromClient(client.Core().RESTClient(), 
 		"endpoints", meta_v1.NamespaceAll, fields.Everything())
-	_, epcontroller := cache.NewInformer(
+	epstore, epcontroller := cache.NewInformer(
 		epListWatch,
 		&v1.Endpoints{},
 		time.Minute*10,
@@ -70,6 +75,7 @@ func NewCLBController(client kubernetes.Interface, crdClient *rest.RESTClient,
 		},
 	)	
 	clbctr.epController = epcontroller
+	clbctr.epstore = epstore
 	
 	return clbctr, nil
 }
@@ -98,27 +104,36 @@ func (c *CLBController)Run(ctx <-chan struct{}) {
 
 func (c *CLBController)onClbAdd(obj interface{}) {
 	clb := obj.(*crdv1.ClassicLoadBalance)
-	glog.V(3).Infof("Add-CLB: %#v", clb)
+	namespace := clb.Namespace
+	glog.V(3).Infof("Add-CLB[%s]: %#v", namespace, clb)
+	
+	for _, store := range c.epstore.List() {
+		glog.V(5).Infof("Iterator epstore: %#v", store)
+	}
+	for _, storekey := range c.epstore.ListKeys() {
+		glog.V(5).Infof("Iterator epstoreKey: %s", storekey)
+	}	
 	
 	var vip string
 	var err error
+	// TODO:  Get Vip from openstack
 	if clb.Spec.IP != "" {
 		vip = clb.Spec.IP
 	}
 	port := clb.Spec.Port
 	protocol := clb.Spec.Protocol
-	lbname, err := c.driver.CreateLb(vip, port, protocol)
+	lbname, err := c.driver.CreateLb(namespace, vip, port, protocol)
 	if err != nil {
 		glog.Errorf("CreateLb failed : %v", err)
 		return
 	}
 	for _, backend := range clb.Spec.Backends {
-		err = c.driver.CreateSvcGroup(backend.ServiceName)
+		err = c.driver.CreateSvcGroup(namespace, backend.ServiceName)
 		if err != nil {
 			glog.Errorf("CreateSvcGrp %s failed : %v", backend.ServiceName, err)
 			return			
 		}
-		err = c.driver.BindSvcGroupLb(lbname, backend.ServiceName)
+		err = c.driver.BindSvcGroupLb(namespace, lbname, backend.ServiceName)
 		if err != nil {
 			glog.Errorf("BindSvcGroup %s to Lb %s failed : %v", backend.ServiceName, lbname, err)
 			return			
@@ -140,6 +155,9 @@ func (c *CLBController)onEpAdd(obj interface{}) {
 
 func (c *CLBController)onEpUpdate(oldObj, newObj interface{}) {
 	glog.V(4).Infof("Update-Ep: %v -> %v", oldObj, newObj)
+	if !reflect.DeepEqual(oldObj, newObj) {
+		glog.V(4).Infof("Update-Diff Ep: %v -> %v", oldObj, newObj)
+	}
 }
 
 func (c *CLBController)onEpDel(obj interface{}) {
