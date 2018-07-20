@@ -2,14 +2,17 @@ package drivers
 
 import (
 	"fmt"
+	"strconv"
 	"strings"	
 	
 	"github.com/golang/glog"
 	
-	/*"github.com/chiradeep/go-nitro/config/basic"
-	"github.com/chiradeep/go-nitro/config/cs"
-	"github.com/chiradeep/go-nitro/config/lb"
-	"github.com/chiradeep/go-nitro/netscaler"*/
+	"github.com/sak0/lb-operator/pkg/utils"
+	
+	citrixbasic "github.com/chiradeep/go-nitro/config/basic"
+	/*"github.com/chiradeep/go-nitro/config/cs"*/
+	citrixlb "github.com/chiradeep/go-nitro/config/lb"
+	"github.com/chiradeep/go-nitro/netscaler"
 )
 
 const (
@@ -21,6 +24,8 @@ type LbProvider interface {
 	DeleteLb(string, string)error
 	CreateSvcGroup(string, string)error
 	BindSvcGroupLb(string, string, string)error
+	CreateSvc(string, string, int32, string)(string, error)
+	BindSvcToLb(string, string)error
 }
 
 func GenerateLbName(namespace string, host string) string {
@@ -46,8 +51,25 @@ func GenerateCsVserverName(namespace string, ingressName string) string {
 
 type CitrixLb struct{}
 func (lb *CitrixLb)CreateLb(namespace string, vip string, port string, protocol string)(string, error) {
+	lbName := utils.GenerateLbNameCLB(namespace, vip, port, protocol)
+	portint, err := strconv.Atoi(port)
+	if err != nil {
+		return "", fmt.Errorf("Convert port %v to int failed: %v", port, err)
+	}
+	
 	glog.V(2).Infof("Citrix Driver CreateLB..")
-	return "testname", nil
+	
+	glog.V(2).Infof("CreateLB Lbvserver %s", lbName)
+	client, _ := netscaler.NewNitroClientFromEnv()
+	nsLB := citrixlb.Lbvserver{
+		Name			: lbName,
+		Ipv46			: vip,
+		Port			: portint,
+		Servicetype		: protocol,
+	}
+	_, _ = client.AddResource(netscaler.Lbvserver.Type(), lbName, &nsLB)	
+	
+	return lbName, nil
 }
 func (lb *CitrixLb)CreateSvcGroup(namespace string, groupname string)error{
 	return nil
@@ -57,6 +79,39 @@ func (lb *CitrixLb)BindSvcGroupLb(namespace string, groupname string, lbname str
 }
 func (lb *CitrixLb)DeleteLb(namespace string, lbname string)error{
 	glog.V(2).Infof("Citrix Driver DeleteLb..")
+	return nil
+}
+func (lb *CitrixLb)CreateSvc(namespace string, ip string, port int32, protocol string)(string, error){
+	svcName := utils.GenerateSvcNameCLB(namespace, ip, port, protocol)
+	glog.V(2).Infof("Citrix Driver CreateSvc %s ", svcName)
+	
+	client, _ := netscaler.NewNitroClientFromEnv()
+	nsService := citrixbasic.Service{
+		Name:        svcName,
+		Ip:          ip,
+		Servicetype: protocol,
+		Port:        int(port),
+	}
+	_, err := client.AddResource(netscaler.Service.Type(), svcName, &nsService)
+	if err != nil {
+		return "", err
+	}
+	
+	return svcName, nil
+}
+
+func (lb *CitrixLb)BindSvcToLb(svcName string, lbName string)error{
+	glog.V(2).Infof("Citrix Driver Bind Svc %s to %s", svcName, lbName)
+	
+	client, _ := netscaler.NewNitroClientFromEnv()
+	binding := citrixlb.Lbvserverservicebinding{
+		Name:        lbName,
+		Servicename: svcName,
+	}
+	err := client.BindResource(netscaler.Lbvserver.Type(), lbName, netscaler.Service.Type(), svcName, &binding)
+	if err != nil {
+		return err
+	} 
 	return nil
 }
 

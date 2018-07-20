@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	
+	crdclient "github.com/sak0/lb-operator/pkg/client"
 	crdv1 "github.com/sak0/lb-operator/pkg/apis/loadbalance/v1"
 	driver "github.com/sak0/lb-operator/pkg/drivers"
 )
@@ -126,9 +127,11 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 	if err != nil {
 		glog.Errorf("CreateLb failed : %v", err)
 		return
+	} else {
+		glog.V(2).Infof("Create LB %s succeced.", lbname)
 	}
 	for _, backend := range clb.Spec.Backends {
-		err = c.driver.CreateSvcGroup(namespace, backend.ServiceName)
+		/*err = c.driver.CreateSvcGroup(namespace, backend.ServiceName)
 		if err != nil {
 			glog.Errorf("CreateSvcGrp %s failed : %v", backend.ServiceName, err)
 			return			
@@ -137,16 +140,47 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 		if err != nil {
 			glog.Errorf("BindSvcGroup %s to Lb %s failed : %v", backend.ServiceName, lbname, err)
 			return			
+		}*/
+		
+		svckey := namespace + "/" + backend.ServiceName
+		eps, exists, err := c.epstore.GetByKey(svckey)
+		
+		if exists && err == nil {
+			epss := eps.(*v1.Endpoints)
+			glog.V(4).Infof("[%s]Get Eps: %#v", svckey, epss.Subsets[0])
+			for _, epaddr := range epss.Subsets[0].Addresses {
+				ip := epaddr.IP
+				for _, epport := range epss.Subsets[0].Ports {
+					port := epport.Port
+					protocol := string(epport.Protocol)
+					svcname, err := c.driver.CreateSvc(namespace, ip, port, protocol)
+					if err != nil {
+						glog.Errorf("Create svc %s failed: %v", svcname, err)
+					}
+					err = c.driver.BindSvcToLb(svcname, lbname)
+					if err != nil {
+						glog.Errorf("Bind svc to lb failed: %v", err)
+					}
+				}
+			}
 		}		
+	}
+	
+	clb.Status.State = "Available"
+	clbclient := crdclient.ClbClient(c.crdClient, c.crdScheme, namespace)
+	glog.V(5).Infof("Update ClaasicLoadBalance Status: %+v", clb)
+	_, err = clbclient.Update(clb, clb.Name)
+	if err != nil {
+		glog.Errorf("Update loadbalance failed: %v", err)
 	}
 }
 
 func (c *CLBController)onClbUpdate(oldObj, newObj interface{}) {
-	glog.V(3).Infof("Update-CLB: %v -> %v", oldObj, newObj)
+	glog.V(3).Infof("Update-CLB: %+v -> %+v", oldObj, newObj)
 }
 
 func (c *CLBController)onClbDel(obj interface{}) {
-	glog.V(3).Infof("Del-CLB: %v", obj)
+	glog.V(3).Infof("Del-CLB: %#v", obj)
 }
 
 func (c *CLBController)onEpAdd(obj interface{}) {

@@ -1,6 +1,9 @@
 package utils
 
 import (
+	"strconv"
+	"strings"
+	
 	"github.com/golang/glog"
 	
 	"github.com/sak0/lb-operator/pkg/client"
@@ -47,3 +50,17 @@ func CreateClients(kubeconf string)(*clientset.Clientset, *apiextcs.Clientset,
 	
 	return kubeClient, extClient, crdcs, scheme, nil
 }
+									
+
+func GenerateLbNameCLB(namespace string, vip string, port string, protocol string)string {
+	lbName := "clb_" + namespace + "_" + 
+			strings.Replace(vip, ".", "_", -1) + "_" + protocol + "_" + port 
+	return lbName
+}
+
+func GenerateSvcNameCLB(namespace string, ip string, port int32, protocol string)string {
+	portstr := strconv.Itoa(int(port))
+	svcName := "clb_" + namespace + "_" + 
+			strings.Replace(ip, ".", "_", -1) + "_" + protocol + "_" + portstr
+	return svcName		
+}									

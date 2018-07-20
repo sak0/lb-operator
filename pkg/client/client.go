@@ -18,10 +18,10 @@ func AlbClient(cl *rest.RESTClient, scheme *runtime.Scheme, namespace string) *a
 }
 
 type albclient struct {
-	cl     *rest.RESTClient
-	ns     string
-	plural string
-	codec  runtime.ParameterCodec
+	cl		*rest.RESTClient
+	ns		string
+	plural	string
+	codec	runtime.ParameterCodec
 }
 
 func (f *albclient) Create(obj *crdv1.AppLoadBalance) (*crdv1.AppLoadBalance, error) {
@@ -70,18 +70,16 @@ func (f *albclient) NewListWatch() *cache.ListWatch {
 	return cache.NewListWatchFromClient(f.cl, f.plural, meta_v1.NamespaceAll, fields.Everything())
 }
 
-
-
 func ClbClient(cl *rest.RESTClient, scheme *runtime.Scheme, namespace string) *clbclient {
-	return &clbclient{cl: cl, ns: namespace, plural: crdv1.CLBPlural,
+	return &clbclient{cl: cl, ns: namespace, plural: crdv1.CLBPlural, 
 		codec: runtime.NewParameterCodec(scheme)}
 }
 
 type clbclient struct {
-	cl     *rest.RESTClient
-	ns     string
-	plural string
-	codec  runtime.ParameterCodec
+	cl		*rest.RESTClient
+	ns		string
+	plural	string
+	codec 	runtime.ParameterCodec
 }
 
 func (f *clbclient) Create(obj *crdv1.ClassicLoadBalance) (*crdv1.ClassicLoadBalance, error) {
@@ -92,10 +90,11 @@ func (f *clbclient) Create(obj *crdv1.ClassicLoadBalance) (*crdv1.ClassicLoadBal
 	return &result, err
 }
 
-func (f *clbclient) Update(obj *crdv1.ClassicLoadBalance) (*crdv1.ClassicLoadBalance, error) {
+func (f *clbclient) Update(obj *crdv1.ClassicLoadBalance, name string) (*crdv1.ClassicLoadBalance, error) {
 	var result crdv1.ClassicLoadBalance
 	err := f.cl.Put().
 		Namespace(f.ns).Resource(f.plural).
+		Name(name).
 		Body(obj).Do().Into(&result)
 	return &result, err
 }
