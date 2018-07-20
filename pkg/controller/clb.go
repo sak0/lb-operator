@@ -82,6 +82,7 @@ func NewCLBController(client kubernetes.Interface, crdClient *rest.RESTClient,
 }
 
 func (c *CLBController)Run(ctx <-chan struct{}) {
+	//Run CLB Controller
 	glog.V(2).Infof("CLB Controller starting...")
 	go c.clbController.Run(ctx)
 	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
@@ -91,7 +92,8 @@ func (c *CLBController)Run(ctx <-chan struct{}) {
 		glog.Errorf("clb informer initial sync timeout")
 		os.Exit(1)
 	}
-
+	
+	//Run Endpoints Controller
 	glog.V(2).Infof("Endpoint Controller starting...")
 	go c.epController.Run(ctx)
 	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
@@ -144,6 +146,7 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 		
 		svckey := namespace + "/" + backend.ServiceName
 		eps, exists, err := c.epstore.GetByKey(svckey)
+		weight := backend.Weight
 		
 		if exists && err == nil {
 			epss := eps.(*v1.Endpoints)
@@ -157,7 +160,7 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 					if err != nil {
 						glog.Errorf("Create svc %s failed: %v", svcname, err)
 					}
-					err = c.driver.BindSvcToLb(svcname, lbname)
+					err = c.driver.BindSvcToLb(svcname, lbname, weight)
 					if err != nil {
 						glog.Errorf("Bind svc to lb failed: %v", err)
 					}

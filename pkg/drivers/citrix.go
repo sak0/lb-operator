@@ -25,7 +25,7 @@ type LbProvider interface {
 	CreateSvcGroup(string, string)error
 	BindSvcGroupLb(string, string, string)error
 	CreateSvc(string, string, int32, string)(string, error)
-	BindSvcToLb(string, string)error
+	BindSvcToLb(string, string, int)error
 }
 
 func GenerateLbNameNew(namespace string, host string, path string) string {
@@ -55,13 +55,14 @@ func (lb *CitrixLb)CreateLb(namespace string, vip string, port string, protocol 
 	
 	glog.V(2).Infof("Citrix Driver CreateLB..")
 	
-	glog.V(2).Infof("CreateLB Lbvserver %s", lbName)
+	glog.V(2).Infof("Citrix create Lbvserver %s", lbName)
 	client, _ := netscaler.NewNitroClientFromEnv()
 	nsLB := citrixlb.Lbvserver{
 		Name			: lbName,
 		Ipv46			: vip,
 		Port			: portint,
 		Servicetype		: protocol,
+		Lbmethod        : "ROUNDROBIN",
 	}
 	_, _ = client.AddResource(netscaler.Lbvserver.Type(), lbName, &nsLB)	
 	
@@ -107,13 +108,14 @@ func (lb *CitrixLb)CreateSvc(namespace string, ip string, port int32, protocol s
 	return svcName, nil
 }
 
-func (lb *CitrixLb)BindSvcToLb(svcName string, lbName string)error{
+func (lb *CitrixLb)BindSvcToLb(svcName string, lbName string, weight int)error{
 	glog.V(2).Infof("Citrix Driver Bind Svc %s to %s", svcName, lbName)
 	
 	client, _ := netscaler.NewNitroClientFromEnv()
 	binding := citrixlb.Lbvserverservicebinding{
 		Name:        lbName,
 		Servicename: svcName,
+		Weight:		 weight,
 	}
 	err := client.BindResource(netscaler.Lbvserver.Type(), lbName, netscaler.Service.Type(), svcName, &binding)
 	if err != nil {
