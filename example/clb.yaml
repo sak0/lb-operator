@@ -8,6 +8,8 @@ metadata:
 spec:
   ip: "10.0.12.170"
   port: "30080"
+  subnet: "9e43e05e-16c0-4e98-887d-98e41b1eed64"
+  protocol: "HTTP"
   backends:
   - weight: 1
     serviceName: demo-svc
