@@ -3,15 +3,13 @@ package controller
 import "github.com/prometheus/client_golang/prometheus"
 
 var (
-	clbTotal = prometheus.NewGaugeVec(
+	clbTotal = prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: "clb_operator",
 				Subsystem: "controller",
 				Name:      "clb_total",
 				Help:      "Total number of classic loadbalance managed by the controller",
-			},
-			[]string{"clb_name", "namespace"},
-	)
+			})
 
 	clbRequestTotal = prometheus.NewCounterVec(
 			prometheus.CounterOpts{

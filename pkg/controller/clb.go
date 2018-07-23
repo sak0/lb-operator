@@ -107,6 +107,8 @@ func (c *CLBController)Run(ctx <-chan struct{}) {
 
 func (c *CLBController)onClbAdd(obj interface{}) {
 	clb := obj.(*crdv1.ClassicLoadBalance)
+	defer clbTotal.Inc()
+	
 	namespace := clb.Namespace
 	glog.V(3).Infof("Add-CLB[%s]: %#v", namespace, clb)
 	
@@ -194,9 +196,12 @@ func (c *CLBController)onClbUpdate(oldObj, newObj interface{}) {
 
 func (c *CLBController)onClbDel(obj interface{}) {
 	glog.V(3).Infof("Del-CLB: %#v", obj)
+	defer clbTotal.Dec()
 	clb := obj.(*crdv1.ClassicLoadBalance)
 	
 	c.driver.DeleteLb(clb.Namespace, clb.Spec.IP, clb.Spec.Port, clb.Spec.Protocol)
+	
+	
 }
 
 func (c *CLBController)onEpAdd(obj interface{}) {
