@@ -63,4 +63,14 @@ func GenerateSvcNameCLB(namespace string, ip string, port int32, protocol string
 	svcName := "clb_" + namespace + "_" + 
 			strings.Replace(ip, ".", "_", -1) + "_" + protocol + "_" + portstr
 	return svcName		
-}									
+}
+
+func GenerateSvcGroupNameCLB(namespace string, svcname string)string {
+	gpName := "clb_" + namespace + "_" + svcname
+	return gpName
+}
+
+func GenerateServerNameCLB(namespace string, ip string)string {
+	serverName := "clb_" + namespace + "_" + strings.Replace(ip, ".", "_", -1)
+	return serverName
+}										

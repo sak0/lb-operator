@@ -80,7 +80,7 @@ func RunClbExample(crdClient *rest.RESTClient, crdScheme *runtime.Scheme){
 			Backends: []crdv1.ClassicLoadBalanceBackend{
 				crdv1.ClassicLoadBalanceBackend{
 					ServiceName : "demosvc",
-					ServicePort : 80,					
+					//ServicePort : 80,					
 				},
 			},
 		},

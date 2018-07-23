@@ -22,10 +22,12 @@ const (
 type LbProvider interface {
 	CreateLb(string, string, string, string)(string, error)
 	DeleteLb(string, string, string, string)error
-	CreateSvcGroup(string, string)error
-	BindSvcGroupLb(string, string, string)error
+	CreateSvcGroup(string, string)(string, error)
+	BindSvcGroupLb(string, string)error
 	CreateSvc(string, string, int32, string)(string, error)
 	BindSvcToLb(string, string, int)error
+	CreateServer(string, string)(string, error)
+	BindServerToGroup(string, string, int32, int)error
 }
 
 func GenerateLbNameNew(namespace string, host string, path string) string {
@@ -53,8 +55,6 @@ func (lb *CitrixLb)CreateLb(namespace string, vip string, port string, protocol 
 		return "", fmt.Errorf("Convert port %v to int failed: %v", port, err)
 	}
 	
-	glog.V(2).Infof("Citrix Driver CreateLB..")
-	
 	glog.V(2).Infof("Citrix create Lbvserver %s", lbName)
 	client, _ := netscaler.NewNitroClientFromEnv()
 	nsLB := citrixlb.Lbvserver{
@@ -69,11 +69,35 @@ func (lb *CitrixLb)CreateLb(namespace string, vip string, port string, protocol 
 	return lbName, nil
 }
 
-func (lb *CitrixLb)CreateSvcGroup(namespace string, groupname string)error{
-	return nil
+func (lb *CitrixLb)CreateSvcGroup(namespace string, svcname string)(string, error){
+	groupName := utils.GenerateSvcGroupNameCLB(namespace, svcname)
+	
+	glog.V(2).Infof("Citrix Driver CreateSvcGroup")
+	client, _ := netscaler.NewNitroClientFromEnv()
+	nsSvcGrp := citrixbasic.Servicegroup{
+		Servicegroupname	: groupName,
+		//TODO: resolve k8s svc only support tcp udp protocol
+		Servicetype			: "TCP",
+	}
+	_, err := client.AddResource(netscaler.Servicegroup.Type(), groupName, &nsSvcGrp)
+	if err != nil {
+		return groupName, err
+	}
+	return groupName, nil
 }
 
-func (lb *CitrixLb)BindSvcGroupLb(namespace string, groupname string, lbname string)error{
+func (lb *CitrixLb)BindSvcGroupLb(groupname string, lbname string)error{
+	glog.V(2).Infof("Citrix Driver BindSvcGroupLb. bind %s to %s", groupname, lbname)
+	client, _ := netscaler.NewNitroClientFromEnv()
+	binding := citrixlb.Lbvserverservicegroupbinding{
+		Servicegroupname	: groupname,
+		Name				: lbname,
+		//Weight				: weight,
+	}
+	err := client.BindResource(netscaler.Lbvserver.Type(), lbname, netscaler.Servicegroup.Type(), groupname, &binding)
+	if err != nil {
+		return err
+	} 
 	return nil
 }
 
@@ -121,6 +145,41 @@ func (lb *CitrixLb)BindSvcToLb(svcName string, lbName string, weight int)error{
 	if err != nil {
 		return err
 	} 
+	return nil
+}
+
+func (lb *CitrixLb)CreateServer(namespace string, ip string)(string, error){
+	glog.V(2).Infof("Citrix Driver CreateServer %s", ip)
+	serverName := utils.GenerateServerNameCLB(namespace, ip)
+	
+	client, _ := netscaler.NewNitroClientFromEnv()
+	nsServer := citrixbasic.Server{
+		Name			: serverName,
+		Ipaddress		: ip,
+	}
+	_, err := client.AddResource(netscaler.Server.Type(), serverName, &nsServer)
+	if err != nil {
+		return serverName, err
+	}	
+	return serverName, nil
+}
+
+func (lb *CitrixLb)BindServerToGroup(serverName string, groupName string, port int32, weight int)error{
+	glog.V(2).Infof("*********Citrix Driver BindServerToGroup %s->%s", serverName, groupName)
+
+	client, _ := netscaler.NewNitroClientFromEnv()
+	binding := citrixbasic.Servicegroupservicegroupmemberbinding{
+		Servicegroupname	: groupName,
+		Servername			: serverName,
+		Port				: int(port),
+		Weight				: weight,
+	}
+	//err := client.BindResource(netscaler.Servicegroup.Type(), groupName, netscaler.Server.Type(), serverName, &binding)
+	_, err := client.AddResource(netscaler.Servicegroup_servicegroupmember_binding.Type(), groupName, &binding)
+	if err != nil {
+		return err
+	} 	
+	
 	return nil
 }
 

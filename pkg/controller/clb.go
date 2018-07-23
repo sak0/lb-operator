@@ -133,34 +133,44 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 		glog.V(2).Infof("Create LB %s succeced.", lbname)
 	}
 	for _, backend := range clb.Spec.Backends {
-		/*err = c.driver.CreateSvcGroup(namespace, backend.ServiceName)
+		weight := backend.Weight
+		if weight <= 0 {
+			weight = 1
+		}
+		
+		svcgrp, err := c.driver.CreateSvcGroup(namespace, 
+			backend.ServiceName)
 		if err != nil {
 			glog.Errorf("CreateSvcGrp %s failed : %v", backend.ServiceName, err)
-			return			
 		}
-		err = c.driver.BindSvcGroupLb(namespace, lbname, backend.ServiceName)
+		err = c.driver.BindSvcGroupLb(svcgrp, lbname)
 		if err != nil {
 			glog.Errorf("BindSvcGroup %s to Lb %s failed : %v", backend.ServiceName, lbname, err)
 			return			
-		}*/
+		}
 		
 		svckey := namespace + "/" + backend.ServiceName
 		eps, exists, err := c.epstore.GetByKey(svckey)
-		weight := backend.Weight
 		
-		if exists && err == nil {
+		if exists && (err == nil) {
 			epss := eps.(*v1.Endpoints)
+			if len(epss.Subsets) < 1 {
+				glog.V(3).Infof("[%s]Get Empty Eps: %#v", svckey, epss.Subsets)
+				continue
+			}
 			glog.V(4).Infof("[%s]Get Eps: %#v", svckey, epss.Subsets[0])
 			for _, epaddr := range epss.Subsets[0].Addresses {
 				ip := epaddr.IP
 				for _, epport := range epss.Subsets[0].Ports {
 					port := epport.Port
-					protocol := string(epport.Protocol)
-					svcname, err := c.driver.CreateSvc(namespace, ip, port, protocol)
+					//protocol := string(epport.Protocol)
+					//svcname, err := c.driver.CreateSvc(namespace, ip, port, protocol)
+					srv, err := c.driver.CreateServer(namespace, ip)
 					if err != nil {
-						glog.Errorf("Create svc %s failed: %v", svcname, err)
+						glog.Errorf("Create server %s failed: %v", srv, err)
 					}
-					err = c.driver.BindSvcToLb(svcname, lbname, weight)
+					//err = c.driver.BindSvcToLb(svcname, lbname, weight)
+					c.driver.BindServerToGroup(srv, svcgrp, port, weight)
 					if err != nil {
 						glog.Errorf("Bind svc to lb failed: %v", err)
 					}
