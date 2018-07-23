@@ -196,7 +196,9 @@ func (c *CLBController)onEpAdd(obj interface{}) {
 func (c *CLBController)onEpUpdate(oldObj, newObj interface{}) {
 	glog.V(4).Infof("Update-Ep: %v -> %v", oldObj, newObj)
 	if !reflect.DeepEqual(oldObj, newObj) {
-		glog.V(4).Infof("Update-Diff Ep: %v -> %v", oldObj, newObj)
+		oldclb := oldObj.(*v1.Endpoints)
+		newclb := newObj.(*v1.Endpoints)
+		glog.V(4).Infof("Update-Diff Ep: %s-> %s", oldclb.Name , newclb.Name )
 	}
 }
 

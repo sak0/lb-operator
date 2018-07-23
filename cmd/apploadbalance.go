@@ -22,7 +22,7 @@ const (
 )
 
 var (
-	kubeconf	= flag.String("kubeconf", "admin.conf", "Path to a kube config. Only required if out-of-cluster.")
+	kubeConf	= flag.String("kubeconf", "admin.conf", "Path to a kube config. Only required if out-of-cluster.")
 	runTest		= flag.Bool("runtest", false, "If create test resource.")
 	createCrd	= flag.Bool("createCrd", true, "If create crd.")
 	
@@ -34,7 +34,7 @@ func main() {
 	flag.Parse()
 	
 	// Get all clients
-	kubeClient, extClient, crdcs, scheme, err := utils.CreateClients(*kubeconf)
+	kubeClient, extClient, crdcs, scheme, err := utils.CreateClients(*kubeConf)
 	if err != nil {
 		panic(err.Error())
 	}
