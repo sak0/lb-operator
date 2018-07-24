@@ -32,6 +32,8 @@ type CLBController struct {
 	clbstore     	cache.Store
 	epstore			cache.Store
 	
+	clbSvcRef		map[string]map[string]int
+	
 	driver			driver.LbProvider			
 }
 
@@ -41,6 +43,7 @@ func NewCLBController(client kubernetes.Interface, crdClient *rest.RESTClient,
 		crdClient 	: crdClient,
 		crdScheme 	: crdScheme,
 		client		: client,
+		clbSvcRef   : make(map[string]map[string]int),
 	}
 	driver, _ := driver.New("citrix")
 	clbctr.driver = driver
@@ -81,18 +84,7 @@ func NewCLBController(client kubernetes.Interface, crdClient *rest.RESTClient,
 	return clbctr, nil
 }
 
-func (c *CLBController)Run(ctx <-chan struct{}) {
-	//Run CLB Controller
-	glog.V(2).Infof("CLB Controller starting...")
-	go c.clbController.Run(ctx)
-	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
-		return c.clbController.HasSynced(), nil
-	})
-	if !c.clbController.HasSynced() {
-		glog.Errorf("clb informer initial sync timeout")
-		os.Exit(1)
-	}
-	
+func (c *CLBController)Run(ctx <-chan struct{}) {	
 	//Run Endpoints Controller
 	glog.V(2).Infof("Endpoint Controller starting...")
 	go c.epController.Run(ctx)
@@ -102,7 +94,18 @@ func (c *CLBController)Run(ctx <-chan struct{}) {
 	if !c.epController.HasSynced() {
 		glog.Errorf("endpoint informer initial sync timeout")
 		os.Exit(1)
-	}	
+	}
+
+	//Run CLB Controller
+	glog.V(2).Infof("CLB Controller starting...")
+	go c.clbController.Run(ctx)
+	wait.Poll(time.Second, 5*time.Minute, func() (bool, error) {
+		return c.clbController.HasSynced(), nil
+	})
+	if !c.clbController.HasSynced() {
+		glog.Errorf("clb informer initial sync timeout")
+		os.Exit(1)
+	}		
 }
 
 func (c *CLBController)onClbAdd(obj interface{}) {
@@ -121,6 +124,7 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 	
 	var vip string
 	var err error
+	lbNameMap := make(map[string]int)
 	// TODO:  Get Vip from openstack
 	if clb.Spec.IP != "" {
 		vip = clb.Spec.IP
@@ -128,13 +132,17 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 	port := clb.Spec.Port
 	protocol := clb.Spec.Protocol
 	lbname, err := c.driver.CreateLb(namespace, vip, port, protocol)
+	lbNameMap[lbname] = 1
 	if err != nil {
 		glog.Errorf("CreateLb failed : %v", err)
 		return
 	} else {
 		glog.V(2).Infof("Create LB %s succeced.", lbname)
 	}
+	
 	for _, backend := range clb.Spec.Backends {
+		c.clbSvcRef[backend.ServiceName] = lbNameMap
+		
 		weight := backend.Weight
 		if weight <= 0 {
 			weight = 1
@@ -145,10 +153,10 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 		if err != nil {
 			glog.Errorf("CreateSvcGrp %s failed : %v", backend.ServiceName, err)
 		}
+		
 		err = c.driver.BindSvcGroupLb(svcgrp, lbname)
 		if err != nil {
-			glog.Errorf("BindSvcGroup %s to Lb %s failed : %v", backend.ServiceName, lbname, err)
-			return			
+			glog.Errorf("BindSvcGroup %s to Lb %s failed : %v", backend.ServiceName, lbname, err)		
 		}
 		
 		svckey := namespace + "/" + backend.ServiceName
@@ -183,6 +191,7 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 	
 	clb.Status.State = "Available"
 	clbclient := crdclient.ClbClient(c.crdClient, c.crdScheme, namespace)
+	
 	glog.V(5).Infof("Update ClaasicLoadBalance Status: %+v", clb)
 	_, err = clbclient.Update(clb, clb.Name)
 	if err != nil {
@@ -201,7 +210,9 @@ func (c *CLBController)onClbDel(obj interface{}) {
 	
 	c.driver.DeleteLb(clb.Namespace, clb.Spec.IP, clb.Spec.Port, clb.Spec.Protocol)
 	
-	
+	for _, backend := range clb.Spec.Backends {
+		delete(c.clbSvcRef, backend.ServiceName)
+	}
 }
 
 func (c *CLBController)onEpAdd(obj interface{}) {
@@ -210,6 +221,7 @@ func (c *CLBController)onEpAdd(obj interface{}) {
 
 func (c *CLBController)onEpUpdate(oldObj, newObj interface{}) {
 	glog.V(4).Infof("Update-Ep: %v -> %v", oldObj, newObj)
+	glog.V(3).Infof("clbSvcRef: %v", c.clbSvcRef)
 	if !reflect.DeepEqual(oldObj, newObj) {
 		oldclb := oldObj.(*v1.Endpoints)
 		newclb := newObj.(*v1.Endpoints)

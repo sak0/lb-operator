@@ -81,6 +81,7 @@ func main() {
 	})
 	listenAddress := net.JoinHostPort("0.0.0.0", strconv.Itoa(*metricsPort))
 	go log.Fatal(http.ListenAndServe(listenAddress, nil))	
+	
 
 	//Catch signal for exit.
 	c := make(chan os.Signal, 1)
