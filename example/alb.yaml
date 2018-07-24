@@ -16,5 +16,3 @@ spec:
     - path: "/demo"
       backend:
         serviceName: demo-svc
-        servicePort: 80
-
