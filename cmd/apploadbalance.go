@@ -27,7 +27,7 @@ var (
 	createCrd	= flag.Bool("createCrd", true, "If create crd.")
 	
 	metricsPath	= flag.String("metrics-path", "/metrics", "metrcis url path.")
-	metricsPort	= flag.Int("port", 8080, "metrics listen port.")
+	metricsPort	= flag.Int("port", 8888, "metrics listen port.")
 )
 
 func main() {
@@ -35,12 +35,13 @@ func main() {
 	
 	// Get all clients
 	kubeClient, extClient, crdcs, scheme, err := utils.CreateClients(*kubeConf)
+	
 	if err != nil {
 		panic(err.Error())
 	}
 
 	//Init CRD Object if needed
-	if *createCrd {
+	if *createCrd == true {
 		err := utils.InitAllCRD(extClient)
 		if err != nil {
 			panic(err.Error())
