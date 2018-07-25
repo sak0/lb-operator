@@ -4,6 +4,8 @@ import (
 	"time"
 	"os"
 	"reflect"
+	"strconv"
+	"strings"
 	
 	"github.com/golang/glog"
 	
@@ -19,6 +21,7 @@ import (
 	crdclient "github.com/sak0/lb-operator/pkg/client"
 	crdv1 "github.com/sak0/lb-operator/pkg/apis/loadbalance/v1"
 	driver "github.com/sak0/lb-operator/pkg/drivers"
+	"github.com/sak0/lb-operator/pkg/utils"
 )
 
 type CLBController struct {
@@ -180,7 +183,7 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 						glog.Errorf("Create server %s failed: %v", srv, err)
 					}
 					//err = c.driver.BindSvcToLb(svcname, lbname, weight)
-					c.driver.BindServerToGroup(srv, svcgrp, port, weight)
+					c.driver.BindServerToGroup(srv, svcgrp, int(port), weight)
 					if err != nil {
 						glog.Errorf("Bind svc to lb failed: %v", err)
 					}
@@ -219,13 +222,74 @@ func (c *CLBController)onEpAdd(obj interface{}) {
 	glog.V(3).Infof("Add-Ep: %v", obj)
 }
 
+func (c *CLBController)createAndBindServer(namespace string, ipstr string, groupName string)error{
+	ipstrArray := strings.Split(ipstr, ":")
+	ip := ipstrArray[0]
+	port, _  := strconv.Atoi(ipstrArray[1])
+	srv, err := c.driver.CreateServer(namespace, ip)
+	if err != nil {
+		glog.Errorf("Create server %s failed: %v", srv, err)
+	}
+	
+	//TODO Get weight
+	err = c.driver.BindServerToGroup(srv, groupName, port, 1)
+	if err != nil {
+		glog.Errorf("Bind svc to lb failed: %v", err)
+	}
+	return nil	
+}
+
+func (c *CLBController)deleteAndUnBindServer(namespace string, ipstr string, groupName string)error {
+	ipstrArray := strings.Split(ipstr, ":")
+	ip := ipstrArray[0]
+	port, _  := strconv.Atoi(ipstrArray[1])
+	serverName := utils.GenerateServerNameCLB(namespace, ip)
+	
+	err := c.driver.UnBindServerFromGroup(serverName, groupName, port)
+	if err != nil {
+		glog.Errorf("UnBind svc from svcgrp failed: %v", err)
+	}
+	
+	return nil	
+}
+
+func (c *CLBController)updateEndpoints(namespace string, epName string, 
+	epsNew map[string]int, epsOld map[string]int){
+	groupName := utils.GenerateSvcGroupNameCLB(namespace, epName)
+	for newips, _ := range epsNew {
+		if _, ok := epsOld[newips]; !ok {
+			glog.V(2).Infof("Need add Server %s on %s", newips, groupName)
+			_ = c.createAndBindServer(namespace, newips, groupName)
+		}
+	}
+	for oldips, _ := range epsOld {
+		if _, ok := epsNew[oldips]; !ok {
+			glog.V(2).Infof("Need del Server %s on %s", oldips, groupName)
+			_ = c.deleteAndUnBindServer(namespace, oldips, groupName)
+		}
+	}
+}
+
 func (c *CLBController)onEpUpdate(oldObj, newObj interface{}) {
 	glog.V(4).Infof("Update-Ep: %v -> %v", oldObj, newObj)
 	glog.V(3).Infof("clbSvcRef: %v", c.clbSvcRef)
 	if !reflect.DeepEqual(oldObj, newObj) {
-		oldclb := oldObj.(*v1.Endpoints)
-		newclb := newObj.(*v1.Endpoints)
-		glog.V(4).Infof("Update-Diff Ep: %s-> %s", oldclb.Name , newclb.Name )
+		oldep := oldObj.(*v1.Endpoints)
+		newep := newObj.(*v1.Endpoints)
+		glog.V(4).Infof("Update-Diff Ep: %s-> %s", oldep.Name , newep.Name)
+		
+		_, found := c.clbSvcRef[newep.Name]
+		if found {
+			glog.V(2).Infof("Ep %s have refcount with lb-operator", newep.Name)
+			epsNew := utils.GetEndpointMap(newep)
+			epsOld := utils.GetEndpointMap(oldep)
+			glog.V(2).Infof("NewEps: %v", epsNew)
+			glog.V(2).Infof("OldEps: %v", epsOld)
+			if !reflect.DeepEqual(epsNew, epsOld) {
+				glog.V(2).Infof("Need update clb configurations.")
+				c.updateEndpoints(newep.Namespace, newep.Name, epsNew, epsOld)
+			}
+		}
 	}
 }
 

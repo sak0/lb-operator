@@ -27,7 +27,8 @@ type LbProvider interface {
 	CreateSvc(string, string, int32, string)(string, error)
 	BindSvcToLb(string, string, int)error
 	CreateServer(string, string)(string, error)
-	BindServerToGroup(string, string, int32, int)error
+	BindServerToGroup(string, string, int, int)error
+	UnBindServerFromGroup(string, string, int)error
 }
 
 func GenerateLbNameNew(namespace string, host string, path string) string {
@@ -62,7 +63,8 @@ func (lb *CitrixLb)CreateLb(namespace string, vip string, port string, protocol 
 		Ipv46			: vip,
 		Port			: portint,
 		Servicetype		: protocol,
-		Lbmethod        : "ROUNDROBIN",
+		//Lbmethod        : "ROUNDROBIN",
+		Lbmethod        : "LEASTCONNECTION",
 	}
 	_, _ = client.AddResource(netscaler.Lbvserver.Type(), lbName, &nsLB)	
 	
@@ -164,14 +166,14 @@ func (lb *CitrixLb)CreateServer(namespace string, ip string)(string, error){
 	return serverName, nil
 }
 
-func (lb *CitrixLb)BindServerToGroup(serverName string, groupName string, port int32, weight int)error{
-	glog.V(2).Infof("*********Citrix Driver BindServerToGroup %s->%s", serverName, groupName)
+func (lb *CitrixLb)BindServerToGroup(serverName string, groupName string, port int, weight int)error{
+	glog.V(2).Infof("Citrix Driver BindServerToGroup %s->%s", serverName, groupName)
 
 	client, _ := netscaler.NewNitroClientFromEnv()
 	binding := citrixbasic.Servicegroupservicegroupmemberbinding{
 		Servicegroupname	: groupName,
 		Servername			: serverName,
-		Port				: int(port),
+		Port				: port,
 		Weight				: weight,
 	}
 	//err := client.BindResource(netscaler.Servicegroup.Type(), groupName, netscaler.Server.Type(), serverName, &binding)
@@ -181,6 +183,23 @@ func (lb *CitrixLb)BindServerToGroup(serverName string, groupName string, port i
 	} 	
 	
 	return nil
+}
+
+func (lb *CitrixLb)UnBindServerFromGroup(serverName string, groupName string, port int)error {
+	glog.V(2).Infof("Citrix Driver UnBindServerFromGroup %s->%s", serverName, groupName)
+
+	client, _ := netscaler.NewNitroClientFromEnv()
+	var args = []string{
+		"servername:" + serverName,
+		"servicegroupname:" + groupName,
+		"port:" + strconv.Itoa(port),
+	}
+	
+	err := client.DeleteResourceWithArgs(netscaler.Servicegroup_servicegroupmember_binding.Type(), groupName, args)
+	if err != nil {
+		return err
+	}
+	return nil	
 }
 
 func New(lbtype string)(LbProvider, error){
