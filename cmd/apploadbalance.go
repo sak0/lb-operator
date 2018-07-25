@@ -4,6 +4,7 @@ import (
 	"flag"
 	"net"
 	"net/http"	
+	//"os"
 	"strconv"
 	"time"
 
@@ -28,35 +29,50 @@ const (
 )
 
 var (
-	kubeConf	= flag.String("kubeconf", "admin.conf", "Path to a kube config. Only required if out-of-cluster.")
-	runTest		= flag.Bool("runtest", false, "If create test resource.")
-	createCrd	= flag.Bool("createCrd", true, "If create crd.")
+	kubeConf			string
+	runTest				bool
+	createCrd			bool
 	
-	metricsPath	= flag.String("metrics-path", "/metrics", "metrcis url path.")
-	metricsPort	= flag.Int("port", 8888, "metrics listen port.")
+	metricsPath			string
+	metricsPort			int
+	
+	electionName		string
+	electionId			string
+	electionNamespace	string
+)
+
+func init() {
+	flag.StringVar(&kubeConf, "kubeconf", "admin.conf", "Path to a kube config. Only required if out-of-cluster.")
+	flag.BoolVar(&runTest, "runtest", false, "If create test resource.")
+	flag.BoolVar(&createCrd, "createCrd", true, "If create crd.")
+	
+	flag.StringVar(&metricsPath, "metrics-path", "/metrics", "metrcis url path.")
+	flag.IntVar(&metricsPort, "port", 8080, "metrics listen port.")
 	
 	//TODO read from env.
-	electionName		= flag.String("name", "lb-operator", "electionName for this instance.")
-	electionId			= flag.String("id", "host123", "electionId for this instance.")
-	electionNamespace	= flag.String("namespace", "default", "election resource's Namespace.")
-)
+	flag.StringVar(&electionName, "name", "lb-operator", "electionName for this instance.")
+	flag.StringVar(&electionId, "id", "host123", "electionId for this instance.")
+	flag.StringVar(&electionNamespace, "namespace", "default", "election resource's Namespace.")
+	
+	flag.Parse()
+}
 
 func run(stopCh <-chan struct{}){
 	// Get all clients
-	kubeClient, extClient, crdcs, scheme, err := utils.CreateClients(*kubeConf)
+	kubeClient, extClient, crdcs, scheme, err := utils.CreateClients(kubeConf)
 	if err != nil {
 		panic(err.Error())
 	}
 
 	//Init CRD Object if needed
-	if *createCrd == true {
+	if createCrd {
 		err := utils.InitAllCRD(extClient)
 		if err != nil {
 			panic(err.Error())
 		}
 	}
 	/*// Create some test resources if needed
-	if *runTest {
+	if runTest {
 		glog.V(2).Infof("Creating test resource...")
 		utils.RunAlbExample(crdcs, scheme)
 		utils.RunClbExample(crdcs, scheme)
@@ -73,16 +89,13 @@ func run(stopCh <-chan struct{}){
 
 
 func main() {
-	flag.Parse()	
-	
-	//Create exporter for prometheus
-	http.Handle(*metricsPath, promhttp.Handler())
+	http.Handle(metricsPath, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<html>
 			<head><title>LoadBalance Controller</title></head>
 			<body>
 			<h1>Hello LB</h1>
-			<p><a href='` + *metricsPath + `'>Metrics</a></p>
+			<p><a href='` + metricsPath + `'>Metrics</a></p>
 			</body>
 			</html>`))
 	})
@@ -90,19 +103,19 @@ func main() {
 		w.WriteHeader(200)
 		w.Write([]byte("ok"))
 	})
-	listenAddress := net.JoinHostPort("0.0.0.0", strconv.Itoa(*metricsPort))
+	listenAddress := net.JoinHostPort("0.0.0.0", strconv.Itoa(metricsPort))
 	go http.ListenAndServe(listenAddress, nil)
 	
 	kubeclient := utils.MustNewKubeClient()
-	glog.V(2).Infof("%v", kubeclient)
+	glog.V(2).Infof("Begin leaderejection %s %s", electionName, electionId)
 
 	rl, err := resourcelock.New(resourcelock.EndpointsResourceLock,
-		*electionNamespace,
+		electionNamespace,
 		"lb-operator",
 		kubeclient.Core(),
 		resourcelock.ResourceLockConfig{
-			Identity:      *electionId,
-			EventRecorder: createRecorder(kubeclient, *electionName, *electionNamespace),
+			Identity:      electionId,
+			EventRecorder: createRecorder(kubeclient, electionName, electionNamespace),
 		})
 	if err != nil {
 		glog.Fatalf("error creating lock: %v", err)

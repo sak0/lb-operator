@@ -272,7 +272,7 @@ func (c *CLBController)updateEndpoints(namespace string, epName string,
 
 func (c *CLBController)onEpUpdate(oldObj, newObj interface{}) {
 	glog.V(4).Infof("Update-Ep: %v -> %v", oldObj, newObj)
-	glog.V(3).Infof("clbSvcRef: %v", c.clbSvcRef)
+	glog.V(4).Infof("clbSvcRef: %v", c.clbSvcRef)
 	if !reflect.DeepEqual(oldObj, newObj) {
 		oldep := oldObj.(*v1.Endpoints)
 		newep := newObj.(*v1.Endpoints)
