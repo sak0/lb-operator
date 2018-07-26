@@ -131,7 +131,24 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 	// TODO:  Get Vip from openstack
 	if clb.Spec.IP != "" {
 		vip = clb.Spec.IP
+		err = utils.CreatePortFromIp(namespace, vip, clb.Spec.Subnet)
+		if err != nil {
+			glog.Errorf("Create port from ip failed: %v", err)
+			c.updateError(err.Error(), clb)
+			return			
+		}
+	} else {
+		vip, err = utils.AllocIpAddrFromSubnet(namespace, clb.Spec.Subnet)
+		if err != nil {
+			glog.Errorf("Alloc ip failed: %v", err)
+			c.updateError(err.Error(), clb)
+			return
+		} else {
+			clb.Spec.IP = vip
+		}
 	}
+	glog.V(2).Infof("CreateCLB with vip: %s", vip)
+	
 	port := clb.Spec.Port
 	protocol := clb.Spec.Protocol
 	lbname, err := c.driver.CreateLb(namespace, vip, port, protocol)
@@ -192,14 +209,8 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 		}		
 	}
 	
-	clb.Status.State = "Available"
-	clbclient := crdclient.ClbClient(c.crdClient, c.crdScheme, namespace)
-	
-	glog.V(5).Infof("Update ClaasicLoadBalance Status: %+v", clb)
-	_, err = clbclient.Update(clb, clb.Name)
-	if err != nil {
-		glog.Errorf("Update loadbalance failed: %v", err)
-	}
+	glog.V(2).Infof("Update ClaasicLoadBalance Status: %+v", clb)
+	c.updateAvailable("", clb)
 }
 
 func (c *CLBController)onClbUpdate(oldObj, newObj interface{}) {
@@ -212,6 +223,8 @@ func (c *CLBController)onClbDel(obj interface{}) {
 	clb := obj.(*crdv1.ClassicLoadBalance)
 	
 	c.driver.DeleteLb(clb.Namespace, clb.Spec.IP, clb.Spec.Port, clb.Spec.Protocol)
+	
+	utils.ReleaseIpAddr(clb.Namespace, clb.Spec.IP)
 	
 	for _, backend := range clb.Spec.Backends {
 		delete(c.clbSvcRef, backend.ServiceName)
@@ -295,4 +308,18 @@ func (c *CLBController)onEpUpdate(oldObj, newObj interface{}) {
 
 func (c *CLBController)onEpDel(obj interface{}) {
 	glog.V(3).Infof("Del-Ep: %v", obj)
+}
+
+func (c *CLBController)updateAvailable(msg string, clb *crdv1.ClassicLoadBalance) {
+	clb.Status.State = "Available"
+	clb.Status.Message = msg
+	clbclient := crdclient.ClbClient(c.crdClient, c.crdScheme, clb.Namespace)
+	_, _ = clbclient.Update(clb, clb.Name)
+}
+
+func (c *CLBController)updateError(msg string, clb *crdv1.ClassicLoadBalance) {
+	clb.Status.State = "Error"
+	clb.Status.Message = msg
+	clbclient := crdclient.ClbClient(c.crdClient, c.crdScheme, clb.Namespace)
+	_, _ = clbclient.Update(clb, clb.Name)
 }

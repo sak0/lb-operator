@@ -53,24 +53,29 @@ func CreateClients(kubeconf string)(*clientset.Clientset, *apiextcs.Clientset,
 									
 
 func GenerateLbNameCLB(namespace string, vip string, port string, protocol string)string {
-	lbName := "clb_" + namespace + "_" + 
+	lbName := "CLB_" + namespace + "_" + 
 			strings.Replace(vip, ".", "_", -1) + "_" + protocol + "_" + port 
 	return lbName
 }
 
 func GenerateSvcNameCLB(namespace string, ip string, port int32, protocol string)string {
 	portstr := strconv.Itoa(int(port))
-	svcName := "clb_" + namespace + "_" + 
+	svcName := "CLB_" + namespace + "_" + 
 			strings.Replace(ip, ".", "_", -1) + "_" + protocol + "_" + portstr
 	return svcName		
 }
 
 func GenerateSvcGroupNameCLB(namespace string, svcname string)string {
-	gpName := "clb_" + namespace + "_" + svcname
+	gpName := "CLB_" + namespace + "_" + svcname
 	return gpName
 }
 
 func GenerateServerNameCLB(namespace string, ip string)string {
-	serverName := "clb_" + namespace + "_" + strings.Replace(ip, ".", "_", -1)
+	serverName := "CLB_" + namespace + "_" + strings.Replace(ip, ".", "_", -1)
 	return serverName
+}
+
+func GeneratePortNameCLB(namespace string, ip string)string {
+	portName := "CLB_" + namespace + "_" + strings.Replace(ip, ".", "_", -1)
+	return portName
 }										

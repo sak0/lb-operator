@@ -26,6 +26,7 @@ import (
 
 const (
 	healthzPath = "/healthz"
+	electionKey = "lb-operator"
 )
 
 var (
@@ -111,7 +112,7 @@ func main() {
 
 	rl, err := resourcelock.New(resourcelock.EndpointsResourceLock,
 		electionNamespace,
-		"lb-operator",
+		electionKey,
 		kubeclient.Core(),
 		resourcelock.ResourceLockConfig{
 			Identity:      electionId,
