@@ -6,7 +6,7 @@ import (
 	"os"
 	"strconv"
 	"time"	
-	//crdv1 "github.com/sak0/lb-operator/pkg/apis/loadbalance/v1"
+	crdv1 "github.com/sak0/lb-operator/pkg/apis/loadbalance/v1"
 	"k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -58,6 +58,14 @@ func GetEndpointMap(ep *v1.Endpoints)map[string]int{
 	}
 	
 	return ipmap
+}
+
+func GetBackendMap(clb *crdv1.ClassicLoadBalance)map[string]int{
+	var backendMap = make(map[string]int)
+	if len(clb.Spec.Backends) < 1 {
+		return backendMap
+	}
+	return backendMap
 }
 
 func InClusterConfig() (*rest.Config, error) {

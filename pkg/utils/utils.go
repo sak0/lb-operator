@@ -1,6 +1,9 @@
 package utils
 
 import (
+	"encoding/hex"
+	"hash/fnv"
+	"os"
 	"strconv"
 	"strings"
 	
@@ -51,31 +54,42 @@ func CreateClients(kubeconf string)(*clientset.Clientset, *apiextcs.Clientset,
 	return kubeClient, extClient, crdcs, scheme, nil
 }
 									
-
+func hashIp()string{
+	ctrlIp := os.Getenv("KUBERNETES_SERVICE_HOST")
+	a := fnv.New32()
+	a.Write([]byte(ctrlIp))
+	return hex.EncodeToString(a.Sum(nil))
+}
+									
 func GenerateLbNameCLB(namespace string, vip string, port string, protocol string)string {
-	lbName := "CLB_" + namespace + "_" + 
+	devHash := hashIp()
+	lbName := devHash + "_CLB_" + namespace + "_" + 
 			strings.Replace(vip, ".", "_", -1) + "_" + protocol + "_" + port 
 	return lbName
 }
 
 func GenerateSvcNameCLB(namespace string, ip string, port int32, protocol string)string {
+	devHash := hashIp()
 	portstr := strconv.Itoa(int(port))
-	svcName := "CLB_" + namespace + "_" + 
+	svcName := devHash + "_CLB_" + namespace + "_" + 
 			strings.Replace(ip, ".", "_", -1) + "_" + protocol + "_" + portstr
 	return svcName		
 }
 
 func GenerateSvcGroupNameCLB(namespace string, svcname string)string {
-	gpName := "CLB_" + namespace + "_" + svcname
+	devHash := hashIp()
+	gpName := devHash + "_CLB_" + namespace + "_" + svcname
 	return gpName
 }
 
 func GenerateServerNameCLB(namespace string, ip string)string {
-	serverName := "CLB_" + namespace + "_" + strings.Replace(ip, ".", "_", -1)
+	devHash := hashIp()
+	serverName := devHash + "_CLB_" + namespace + "_" + strings.Replace(ip, ".", "_", -1)
 	return serverName
 }
 
 func GeneratePortNameCLB(namespace string, ip string)string {
-	portName := "CLB_" + namespace + "_" + strings.Replace(ip, ".", "_", -1)
+	devHash := hashIp()
+	portName := devHash + "_CLB_" + namespace + "_" + strings.Replace(ip, ".", "_", -1)
 	return portName
 }										
