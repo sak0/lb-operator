@@ -124,35 +124,17 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 	for _, storekey := range c.epstore.ListKeys() {
 		glog.V(5).Infof("Iterator epstoreKey: %s", storekey)
 	}	
-	
-	var vip string
-	var err error
-	
-	// TODO:  Get Vip from openstack
-	if clb.Spec.IP != "" {
-		vip = clb.Spec.IP
-		err = utils.CreatePortFromIp(namespace, vip, clb.Spec.Subnet)
-		if err != nil {
-			glog.Errorf("Create port from ip failed: %v", err)
-			c.updateError(err.Error(), clb)
-			return			
-		}
-	} else {
-		vip, err = utils.AllocIpAddrFromSubnet(namespace, clb.Spec.Subnet)
-		if err != nil {
-			glog.Errorf("Alloc ip failed: %v", err)
-			c.updateError(err.Error(), clb)
-			return
-		} else {
-			clb.Spec.IP = vip
-		}
+		
+	vip, err := c.ensureVip(clb)
+	if err != nil {
+		c.updateError(err.Error(), clb)
+		return		
 	}
-	glog.V(2).Infof("CreateCLB with vip: %s", vip)
-	
+	clb.Spec.IP = vip
+		
 	port := clb.Spec.Port
 	protocol := clb.Spec.Protocol
 	lbname, err := c.driver.CreateLb(namespace, vip, port, protocol)
-
 	if err != nil {
 		glog.Errorf("CreateLb failed : %v", err)
 		return
@@ -161,60 +143,7 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 	}
 	
 	for _, backend := range clb.Spec.Backends {
-		if lbNameMap, ok := c.clbSvcRef[backend.ServiceName]; !ok {
-			newlbNameMap := make(map[string]int)
-			newlbNameMap[lbname] = 1
-			c.clbSvcRef[backend.ServiceName] = newlbNameMap
-		} else {
-			//TODO adapt to one lb ref the service more than 1 times
-			lbNameMap[lbname] = 1
-			c.clbSvcRef[backend.ServiceName] = lbNameMap
-		}
-		
-		weight := backend.Weight
-		if weight <= 0 {
-			weight = 1
-		}
-		
-		svcgrp, err := c.driver.CreateSvcGroup(namespace, 
-			backend.ServiceName)
-		if err != nil {
-			glog.Errorf("CreateSvcGrp %s failed : %v", backend.ServiceName, err)
-		}
-		
-		err = c.driver.BindSvcGroupLb(svcgrp, lbname)
-		if err != nil {
-			glog.Errorf("BindSvcGroup %s to Lb %s failed : %v", backend.ServiceName, lbname, err)		
-		}
-		
-		svckey := namespace + "/" + backend.ServiceName
-		eps, exists, err := c.epstore.GetByKey(svckey)
-		
-		if exists && (err == nil) {
-			epss := eps.(*v1.Endpoints)
-			if len(epss.Subsets) < 1 {
-				glog.V(3).Infof("[%s]Get Empty Eps: %#v", svckey, epss.Subsets)
-				continue
-			}
-			glog.V(4).Infof("[%s]Get Eps: %#v", svckey, epss.Subsets[0])
-			for _, epaddr := range epss.Subsets[0].Addresses {
-				ip := epaddr.IP
-				for _, epport := range epss.Subsets[0].Ports {
-					port := epport.Port
-					//protocol := string(epport.Protocol)
-					//svcname, err := c.driver.CreateSvc(namespace, ip, port, protocol)
-					srv, err := c.driver.CreateServer(namespace, ip)
-					if err != nil {
-						glog.Errorf("Create server %s failed: %v", srv, err)
-					}
-					//err = c.driver.BindSvcToLb(svcname, lbname, weight)
-					c.driver.BindServerToGroup(srv, svcgrp, int(port), weight)
-					if err != nil {
-						glog.Errorf("Bind svc to lb failed: %v", err)
-					}
-				}
-			}
-		}		
+		c.addBackendToCLB(namespace, backend, lbname)	
 	}
 	
 	glog.V(2).Infof("Update ClaasicLoadBalance Status: %+v", clb)
@@ -259,11 +188,22 @@ func (c *CLBController)onClbDel(obj interface{}) {
 	}
 }
 
-func (c *CLBController)addBackendToCLB(namespace string, backend *crdv1.ClassicLoadBalanceBackend, lbname string){
+func (c *CLBController)addBackendToCLB(namespace string, backend crdv1.ClassicLoadBalanceBackend, lbname string){
+	if lbNameMap, ok := c.clbSvcRef[backend.ServiceName]; !ok {
+		newlbNameMap := make(map[string]int)
+		newlbNameMap[lbname] = 1
+		c.clbSvcRef[backend.ServiceName] = newlbNameMap
+	} else {
+		//TODO adapt to one lb ref the service more than 1 times
+		lbNameMap[lbname] = 1
+		c.clbSvcRef[backend.ServiceName] = lbNameMap
+	}
+
 	weight := backend.Weight
 	if weight <= 0 {
 		weight = 1
 	}
+	
 	
 	svcgrp, err := c.driver.CreateSvcGroup(namespace, 
 			backend.ServiceName)
@@ -307,8 +247,8 @@ func (c *CLBController)addBackendToCLB(namespace string, backend *crdv1.ClassicL
 }
 
 func (c *CLBController)updateClb(namespace string, lbname string, 
-	backendsNew map[*crdv1.ClassicLoadBalanceBackend]int, 
-	backendsOld map[*crdv1.ClassicLoadBalanceBackend]int) {
+	backendsNew map[crdv1.ClassicLoadBalanceBackend]int, 
+	backendsOld map[crdv1.ClassicLoadBalanceBackend]int) {
 	for backendNew, _ := range backendsNew {
 		if _, ok := backendsOld[backendNew]; !ok {
 			glog.V(2).Infof("CLB Update: need add backend: %v", backendNew)
@@ -316,6 +256,33 @@ func (c *CLBController)updateClb(namespace string, lbname string,
 		}
 	}
 }
+
+func (c *CLBController)ensureVip(clb *crdv1.ClassicLoadBalance)(string, error){
+	if clb.Status.State == crdv1.CLBSTATUSAVAILABLE {
+		return clb.Spec.IP, nil
+	}
+	
+	var vip string
+	var err error
+	if clb.Spec.IP != "" {
+		vip = clb.Spec.IP
+		err = utils.CreatePortFromIp(clb.Namespace, vip, clb.Spec.Subnet)
+		if err != nil {
+			glog.Errorf("Create port from ip failed: %v", err)
+			return vip, err			
+		}
+	} else {
+		vip, err = utils.AllocIpAddrFromSubnet(clb.Namespace, clb.Spec.Subnet)
+		if err != nil {
+			glog.Errorf("Alloc ip failed: %v", err)
+			return "", err
+		} else {
+			glog.V(2).Infof("CreateCLB with vip: %s", vip)	
+		}
+	}
+	
+	return vip, nil
+}		
 
 func (c *CLBController)onEpAdd(obj interface{}) {
 	glog.V(3).Infof("Add-Ep: %v", obj)
@@ -397,14 +364,14 @@ func (c *CLBController)onEpDel(obj interface{}) {
 }
 
 func (c *CLBController)updateAvailable(msg string, clb *crdv1.ClassicLoadBalance) {
-	clb.Status.State = "Available"
+	clb.Status.State = crdv1.CLBSTATUSAVAILABLE
 	clb.Status.Message = msg
 	clbclient := crdclient.ClbClient(c.crdClient, c.crdScheme, clb.Namespace)
 	_, _ = clbclient.Update(clb, clb.Name)
 }
 
 func (c *CLBController)updateError(msg string, clb *crdv1.ClassicLoadBalance) {
-	clb.Status.State = "Error"
+	clb.Status.State = crdv1.CLBSTATUSERROR
 	clb.Status.Message = msg
 	clbclient := crdclient.ClbClient(c.crdClient, c.crdScheme, clb.Namespace)
 	_, _ = clbclient.Update(clb, clb.Name)
