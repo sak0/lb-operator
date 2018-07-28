@@ -127,7 +127,7 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 	
 	var vip string
 	var err error
-	lbNameMap := make(map[string]int)
+	
 	// TODO:  Get Vip from openstack
 	if clb.Spec.IP != "" {
 		vip = clb.Spec.IP
@@ -152,7 +152,7 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 	port := clb.Spec.Port
 	protocol := clb.Spec.Protocol
 	lbname, err := c.driver.CreateLb(namespace, vip, port, protocol)
-	lbNameMap[lbname] = 1
+
 	if err != nil {
 		glog.Errorf("CreateLb failed : %v", err)
 		return
@@ -161,7 +161,15 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 	}
 	
 	for _, backend := range clb.Spec.Backends {
-		c.clbSvcRef[backend.ServiceName] = lbNameMap
+		if lbNameMap, ok := c.clbSvcRef[backend.ServiceName]; !ok {
+			newlbNameMap := make(map[string]int)
+			newlbNameMap[lbname] = 1
+			c.clbSvcRef[backend.ServiceName] = newlbNameMap
+		} else {
+			//TODO adapt to one lb ref the service more than 1 times
+			lbNameMap[lbname] = 1
+			c.clbSvcRef[backend.ServiceName] = lbNameMap
+		}
 		
 		weight := backend.Weight
 		if weight <= 0 {
@@ -215,6 +223,24 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 
 func (c *CLBController)onClbUpdate(oldObj, newObj interface{}) {
 	glog.V(3).Infof("Update-CLB: %+v -> %+v", oldObj, newObj)
+	
+	if !reflect.DeepEqual(oldObj, newObj) {
+		newClb := oldObj.(*crdv1.ClassicLoadBalance)
+		oldClb := newObj.(*crdv1.ClassicLoadBalance)
+		
+		//TODO: Forbidden CLB front update
+		/*lbName := utils.GenerateLbNameCLB(newClb.Namespace, newClb.Spec.IP, 
+			newClb.Spec.Port, newClb.Spec.Protocol)*/
+		
+		backendsNew := utils.GetBackendMap(newClb)
+		backendsOld := utils.GetBackendMap(oldClb)
+		glog.V(2).Infof("backendsNew: %v", backendsNew)
+		glog.V(2).Infof("backendsOld: %v", backendsOld)
+		if !reflect.DeepEqual(backendsNew, backendsOld) {
+			glog.V(2).Infof("Need update CLB configurations.")
+			c.updateClb(newClb.Namespace, newClb.Name, backendsNew, backendsOld)
+		}					
+	}
 }
 
 func (c *CLBController)onClbDel(obj interface{}) {
@@ -226,8 +252,68 @@ func (c *CLBController)onClbDel(obj interface{}) {
 	
 	utils.ReleaseIpAddr(clb.Namespace, clb.Spec.IP)
 	
+	lbName := utils.GenerateLbNameCLB(clb.Namespace, clb.Spec.IP, clb.Spec.Port, clb.Spec.Protocol)
 	for _, backend := range clb.Spec.Backends {
-		delete(c.clbSvcRef, backend.ServiceName)
+		lbNameMap := c.clbSvcRef[backend.ServiceName]
+		delete(lbNameMap, lbName)
+	}
+}
+
+func (c *CLBController)addBackendToCLB(namespace string, backend *crdv1.ClassicLoadBalanceBackend, lbname string){
+	weight := backend.Weight
+	if weight <= 0 {
+		weight = 1
+	}
+	
+	svcgrp, err := c.driver.CreateSvcGroup(namespace, 
+			backend.ServiceName)
+	if err != nil {
+		glog.Errorf("CreateSvcGrp %s failed : %v", backend.ServiceName, err)
+	}
+	
+	err = c.driver.BindSvcGroupLb(svcgrp, lbname)
+	if err != nil {
+		glog.Errorf("BindSvcGroup %s to Lb %s failed : %v", backend.ServiceName, lbname, err)		
+	}
+	
+	svckey := namespace + "/" + backend.ServiceName
+	eps, exists, err := c.epstore.GetByKey(svckey)
+	
+	if exists && (err == nil) {
+		epss := eps.(*v1.Endpoints)
+		if len(epss.Subsets) < 1 {
+			glog.V(3).Infof("[%s]Get Empty Eps: %#v", svckey, epss.Subsets)
+			return
+		}
+		glog.V(4).Infof("[%s]Get Eps: %#v", svckey, epss.Subsets[0])
+		for _, epaddr := range epss.Subsets[0].Addresses {
+			ip := epaddr.IP
+			for _, epport := range epss.Subsets[0].Ports {
+				port := epport.Port
+				//protocol := string(epport.Protocol)
+				//svcname, err := c.driver.CreateSvc(namespace, ip, port, protocol)
+				srv, err := c.driver.CreateServer(namespace, ip)
+				if err != nil {
+					glog.Errorf("Create server %s failed: %v", srv, err)
+				}
+				//err = c.driver.BindSvcToLb(svcname, lbname, weight)
+				c.driver.BindServerToGroup(srv, svcgrp, int(port), weight)
+				if err != nil {
+					glog.Errorf("Bind svc to lb failed: %v", err)
+				}
+			}
+		}
+	}
+}
+
+func (c *CLBController)updateClb(namespace string, lbname string, 
+	backendsNew map[*crdv1.ClassicLoadBalanceBackend]int, 
+	backendsOld map[*crdv1.ClassicLoadBalanceBackend]int) {
+	for backendNew, _ := range backendsNew {
+		if _, ok := backendsOld[backendNew]; !ok {
+			glog.V(2).Infof("CLB Update: need add backend: %v", backendNew)
+			c.addBackendToCLB(namespace, backendNew, lbname)
+		}
 	}
 }
 
@@ -285,7 +371,7 @@ func (c *CLBController)updateEndpoints(namespace string, epName string,
 
 func (c *CLBController)onEpUpdate(oldObj, newObj interface{}) {
 	glog.V(4).Infof("Update-Ep: %v -> %v", oldObj, newObj)
-	glog.V(4).Infof("clbSvcRef: %v", c.clbSvcRef)
+	glog.V(3).Infof("clbSvcRef: %v", c.clbSvcRef)
 	if !reflect.DeepEqual(oldObj, newObj) {
 		oldep := oldObj.(*v1.Endpoints)
 		newep := newObj.(*v1.Endpoints)

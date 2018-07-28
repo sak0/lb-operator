@@ -60,8 +60,8 @@ func GetEndpointMap(ep *v1.Endpoints)map[string]int{
 	return ipmap
 }
 
-func GetBackendMap(clb *crdv1.ClassicLoadBalance)map[string]int{
-	var backendMap = make(map[string]int)
+func GetBackendMap(clb *crdv1.ClassicLoadBalance)map[*crdv1.ClassicLoadBalanceBackend]int{
+	var backendMap = make(map[*crdv1.ClassicLoadBalanceBackend]int)
 	if len(clb.Spec.Backends) < 1 {
 		return backendMap
 	}
