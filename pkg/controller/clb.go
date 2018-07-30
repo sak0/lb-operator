@@ -154,12 +154,12 @@ func (c *CLBController)onClbUpdate(oldObj, newObj interface{}) {
 	glog.V(3).Infof("Update-CLB: %+v -> %+v", oldObj, newObj)
 	
 	if !reflect.DeepEqual(oldObj, newObj) {
-		newClb := oldObj.(*crdv1.ClassicLoadBalance)
-		oldClb := newObj.(*crdv1.ClassicLoadBalance)
+		newClb := newObj.(*crdv1.ClassicLoadBalance)
+		oldClb := oldObj.(*crdv1.ClassicLoadBalance)
 		
 		//TODO: Forbidden CLB front update
-		/*lbName := utils.GenerateLbNameCLB(newClb.Namespace, newClb.Spec.IP, 
-			newClb.Spec.Port, newClb.Spec.Protocol)*/
+		lbName := utils.GenerateLbNameCLB(newClb.Namespace, newClb.Spec.IP, 
+			newClb.Spec.Port, newClb.Spec.Protocol)
 		
 		backendsNew := utils.GetBackendMap(newClb)
 		backendsOld := utils.GetBackendMap(oldClb)
@@ -167,7 +167,7 @@ func (c *CLBController)onClbUpdate(oldObj, newObj interface{}) {
 		glog.V(2).Infof("backendsOld: %v", backendsOld)
 		if !reflect.DeepEqual(backendsNew, backendsOld) {
 			glog.V(2).Infof("Need update CLB configurations.")
-			c.updateClb(newClb.Namespace, newClb.Name, backendsNew, backendsOld)
+			c.updateClb(newClb.Namespace, lbName, backendsNew, backendsOld)
 		}					
 	}
 }
@@ -251,7 +251,7 @@ func (c *CLBController)updateClb(namespace string, lbname string,
 	backendsOld map[crdv1.ClassicLoadBalanceBackend]int) {
 	for backendNew, _ := range backendsNew {
 		if _, ok := backendsOld[backendNew]; !ok {
-			glog.V(2).Infof("CLB Update: need add backend: %v", backendNew)
+			glog.V(2).Infof("CLB Update: need add backend %v to %s", backendNew, lbname)
 			c.addBackendToCLB(namespace, backendNew, lbname)
 		}
 	}

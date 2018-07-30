@@ -65,6 +65,9 @@ func GetBackendMap(clb *crdv1.ClassicLoadBalance)map[crdv1.ClassicLoadBalanceBac
 	if len(clb.Spec.Backends) < 1 {
 		return backendMap
 	}
+	for _, backend := range clb.Spec.Backends {
+		backendMap[backend] = 1
+	}
 	return backendMap
 }
 
