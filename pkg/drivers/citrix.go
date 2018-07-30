@@ -24,6 +24,7 @@ type LbProvider interface {
 	DeleteLb(string, string, string, string)error
 	CreateSvcGroup(string, string)(string, error)
 	BindSvcGroupLb(string, string)error
+	UnBindSvcGroupLb(string, string)error
 	CreateSvc(string, string, int32, string)(string, error)
 	BindSvcToLb(string, string, int)error
 	CreateServer(string, string)(string, error)
@@ -97,6 +98,16 @@ func (lb *CitrixLb)BindSvcGroupLb(groupname string, lbname string)error{
 		//Weight				: weight,
 	}
 	err := client.BindResource(netscaler.Lbvserver.Type(), lbname, netscaler.Servicegroup.Type(), groupname, &binding)
+	if err != nil {
+		return err
+	} 
+	return nil
+}
+
+func (lb *CitrixLb)UnBindSvcGroupLb(groupname string, lbname string)error{
+	glog.V(2).Infof("Citrix Driver UnBindSvcGroupLb. unbind %s from %s", groupname, lbname)
+	client, _ := netscaler.NewNitroClientFromEnv()
+	err := client.UnbindResource(netscaler.Lbvserver.Type(), lbname, netscaler.Servicegroup.Type(), groupname, "Servicegroupname")
 	if err != nil {
 		return err
 	} 

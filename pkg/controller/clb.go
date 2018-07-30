@@ -255,6 +255,18 @@ func (c *CLBController)updateClb(namespace string, lbname string,
 			c.addBackendToCLB(namespace, backendNew, lbname)
 		}
 	}
+	
+	for backendOld, _ := range backendsOld {
+		if _, ok := backendsNew[backendOld]; !ok {
+			glog.V(2).Infof("CLB Update: need remove backend %v from %s", backendOld, lbname)
+			
+			groupName := utils.GenerateSvcGroupNameCLB(namespace, backendOld.ServiceName)
+			c.driver.UnBindSvcGroupLb(groupName, lbname)
+			
+			lbNameMap := c.clbSvcRef[backendOld.ServiceName]
+			delete(lbNameMap, lbname)
+		}
+	}
 }
 
 func (c *CLBController)ensureVip(clb *crdv1.ClassicLoadBalance)(string, error){
