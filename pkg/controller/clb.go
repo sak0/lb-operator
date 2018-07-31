@@ -134,6 +134,11 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 		
 	port := clb.Spec.Port
 	protocol := clb.Spec.Protocol
+	//cause k8s service unsupport http
+	if protocol == "HTTP" {
+		protocol = "TCP"
+	}
+	
 	lbname, err := c.driver.CreateLb(namespace, vip, port, protocol)
 	if err != nil {
 		glog.Errorf("CreateLb failed : %v", err)
