@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"time"
 	"os"
 	"reflect"
@@ -135,7 +136,10 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 	port := clb.Spec.Port
 	protocol := clb.Spec.Protocol
 	//cause k8s service unsupport http
-	if protocol == "HTTP" {
+	if protocol != "HTTP" && protocol != "TCP" && protocol != "UDP" {
+		c.updateError(fmt.Sprintf("protocol %s is unsupported.", protocol), clb)
+		return
+	} else if protocol == "HTTP"{
 		protocol = "TCP"
 	}
 	
