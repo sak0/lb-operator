@@ -57,8 +57,12 @@ func (lb *CitrixLb)CreateLb(namespace string, vip string, port string, protocol 
 		return "", fmt.Errorf("Convert port %v to int failed: %v", port, err)
 	}
 	
-	glog.V(2).Infof("Citrix create Lbvserver %s", lbName)
-	client, _ := netscaler.NewNitroClientFromEnv()
+	glog.V(2).Infof("Citrix creating Lbvserver %s", lbName)
+	client, err := netscaler.NewNitroClientFromEnv()
+	if err != nil {
+		return "", err
+	}
+	
 	nsLB := citrixlb.Lbvserver{
 		Name			: lbName,
 		Ipv46			: vip,
@@ -67,8 +71,13 @@ func (lb *CitrixLb)CreateLb(namespace string, vip string, port string, protocol 
 		//Lbmethod        : "ROUNDROBIN",
 		Lbmethod        : "LEASTCONNECTION",
 	}
-	_, _ = client.AddResource(netscaler.Lbvserver.Type(), lbName, &nsLB)	
-	
+	name, err := client.AddResource(netscaler.Lbvserver.Type(), lbName, &nsLB)
+	if err != nil {
+		glog.Errorf("Citrix create Lbvserver failed %v", err)
+	} else {
+		glog.V(2).Infof("Citrix created Lbvserver %s", name)
+	}
+		
 	return lbName, nil
 }
 

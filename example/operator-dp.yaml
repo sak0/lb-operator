@@ -1,0 +1,53 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: lb-operator
+  namespace: default
+  labels:
+    app: lb-operator
+  annotations:
+    sidecar.istio.io/inject: "false"
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: lb-operator
+        version: v0.1
+    spec:
+      #serviceAccountName: mini-metrics
+      containers:
+      - name: lb-operator
+        image: hub.yonghui.cn/network/lb-operator:v0.1
+        imagePullPolicy: IfNotPresent
+        ports:
+          - name: http
+            containerPort: 8080
+        command:
+          - /usr/local/bin/lb-operator
+          - -alsologtostderr
+          - -v
+          - "3"
+        env:
+        - name: KUBERNETES_SERVICE_HOST
+          value: "10.0.90.140"
+        - name: KUBERNETES_SERVICE_PORT
+          value: "6443"
+        - name: OS_PASSWORD
+          value: "e6c5f31b94bb4c4b"
+        - name: OS_AUTH_URL
+          value: "http://10.0.91.153:35357/v3"
+        - name: OS_TENANT_ID
+          value: "26b33cbba52f41d59d69a6c7e736473b"
+        - name: NS_URL
+          value: "http://10.0.12.254/"
+        - name: NS_LOGIN
+          valueFrom:
+            secretKeyRef:
+              name: ns-login-secret
+              key: username
+        - name: NS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ns-login-secret
+              key: password          
