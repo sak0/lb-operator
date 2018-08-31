@@ -152,7 +152,7 @@ func (c *CLBController)onClbAdd(obj interface{}) {
 	}
 	
 	for _, backend := range clb.Spec.Backends {
-		c.addBackendToCLB(namespace, backend, lbname)	
+		c.addBackendToCLB(clb, backend)	
 	}
 	
 	glog.V(2).Infof("Update ClaasicLoadBalance Status: %+v", clb)
@@ -165,18 +165,14 @@ func (c *CLBController)onClbUpdate(oldObj, newObj interface{}) {
 	if !reflect.DeepEqual(oldObj, newObj) {
 		newClb := newObj.(*crdv1.ClassicLoadBalance)
 		oldClb := oldObj.(*crdv1.ClassicLoadBalance)
-		
-		//TODO: Forbidden CLB front update
-		lbName := utils.GenerateLbNameCLB(newClb.Namespace, newClb.Spec.IP, 
-			newClb.Spec.Port, newClb.Spec.Protocol)
-		
+				
 		backendsNew := utils.GetBackendMap(newClb)
 		backendsOld := utils.GetBackendMap(oldClb)
 		glog.V(2).Infof("backendsNew: %v", backendsNew)
 		glog.V(2).Infof("backendsOld: %v", backendsOld)
 		if !reflect.DeepEqual(backendsNew, backendsOld) {
 			glog.V(2).Infof("Need update CLB configurations.")
-			c.updateClb(newClb.Namespace, lbName, backendsNew, backendsOld)
+			c.updateClb(newClb, backendsNew, backendsOld)
 		}					
 	}
 }
@@ -185,47 +181,68 @@ func (c *CLBController)onClbDel(obj interface{}) {
 	glog.V(3).Infof("Del-CLB: %#v", obj)
 	defer clbTotal.Dec()
 	clb := obj.(*crdv1.ClassicLoadBalance)
-	
-	c.driver.DeleteLb(clb.Namespace, clb.Spec.IP, clb.Spec.Port, clb.Spec.Protocol)
-	
-	utils.ReleaseIpAddr(clb.Namespace, clb.Spec.IP)
-	
+		
 	lbName := utils.GenerateLbNameCLB(clb.Namespace, clb.Spec.IP, clb.Spec.Port, clb.Spec.Protocol)
 	for _, backend := range clb.Spec.Backends {
 		lbNameMap := c.clbSvcRef[backend.ServiceName]
 		delete(lbNameMap, lbName)
+		
+		c.removeBackendFromCLB(clb, backend)
 	}
+	
+	protocol := clb.Spec.Protocol
+	if protocol == "HTTP" {
+		protocol = "TCP"
+	}
+	c.driver.DeleteLb(clb.Namespace, clb.Spec.IP, clb.Spec.Port, protocol)
+	utils.ReleaseIpAddr(clb.Namespace, clb.Spec.IP)	
 }
 
-func (c *CLBController)addBackendToCLB(namespace string, backend crdv1.ClassicLoadBalanceBackend, lbname string){
-	if lbNameMap, ok := c.clbSvcRef[backend.ServiceName]; !ok {
-		newlbNameMap := make(map[string]int)
-		newlbNameMap[lbname] = 1
-		c.clbSvcRef[backend.ServiceName] = newlbNameMap
-	} else {
-		//TODO adapt to one lb ref the service more than 1 times
-		lbNameMap[lbname] = 1
-		c.clbSvcRef[backend.ServiceName] = lbNameMap
+func (c *CLBController)removeBackendFromCLB(clb *crdv1.ClassicLoadBalance, backend crdv1.ClassicLoadBalanceBackend){
+	lbName := utils.GenerateLbNameCLB(clb.Namespace, clb.Spec.IP, 
+			clb.Spec.Port, clb.Spec.Protocol)	
+
+	svcGroupName := utils.GenerateSvcGroupNameCLB(clb.Namespace, clb.Name, backend.ServiceName, backend.ServicePort)
+	
+	err := c.driver.UnBindSvcGroupLb(svcGroupName, lbName)
+	if err != nil {
+		glog.Errorf("UnindSvcGroup %s to Lb %s failed : %v", svcGroupName, lbName, err)		
 	}
+	err = c.driver.DeleteSvcGroup(svcGroupName)
+	if err != nil {
+		glog.Errorf("DeleteSvcGroup %s failed : %v", svcGroupName, err)
+	}	
+}
+
+func (c *CLBController)addBackendToCLB(clb *crdv1.ClassicLoadBalance, backend crdv1.ClassicLoadBalanceBackend){
+//	if lbNameMap, ok := c.clbSvcRef[backend.ServiceName]; !ok {
+//		newlbNameMap := make(map[string]int)
+//		newlbNameMap[lbname] = 1
+//		c.clbSvcRef[backend.ServiceName] = newlbNameMap
+//	} else {
+//		//TODO adapt to one lb ref the service more than 1 times
+//		lbNameMap[lbname] = 1
+//		c.clbSvcRef[backend.ServiceName] = lbNameMap
+//	}
+	lbName := utils.GenerateLbNameCLB(clb.Namespace, clb.Spec.IP, 
+			clb.Spec.Port, clb.Spec.Protocol)	
 
 	weight := backend.Weight
 	if weight <= 0 {
 		weight = 1
 	}
-	
-	
-	svcgrp, err := c.driver.CreateSvcGroup(namespace, 
-			backend.ServiceName)
+	svcGroupName := utils.GenerateSvcGroupNameCLB(clb.Namespace, clb.Name, backend.ServiceName, backend.ServicePort)
+	err := c.driver.CreateSvcGroup(svcGroupName)
 	if err != nil {
 		glog.Errorf("CreateSvcGrp %s failed : %v", backend.ServiceName, err)
 	}
 	
-	err = c.driver.BindSvcGroupLb(svcgrp, lbname)
+	err = c.driver.BindSvcGroupLb(svcGroupName, lbName)
 	if err != nil {
-		glog.Errorf("BindSvcGroup %s to Lb %s failed : %v", backend.ServiceName, lbname, err)		
+		glog.Errorf("BindSvcGroup %s to Lb %s failed : %v", backend.ServiceName, clb.Name, err)		
 	}
 	
-	svckey := namespace + "/" + backend.ServiceName
+	svckey := clb.Namespace + "/" + backend.ServiceName
 	eps, exists, err := c.epstore.GetByKey(svckey)
 	
 	if exists && (err == nil) {
@@ -238,15 +255,20 @@ func (c *CLBController)addBackendToCLB(namespace string, backend crdv1.ClassicLo
 		for _, epaddr := range epss.Subsets[0].Addresses {
 			ip := epaddr.IP
 			for _, epport := range epss.Subsets[0].Ports {
-				port := epport.Port
+				port := int(epport.Port)
+				if strconv.Itoa(port) != backend.ServicePort {
+					glog.V(2).Infof("Ignore service port %d, backendPort = %s\n", port, backend.ServicePort)
+					continue
+				}
+
 				//protocol := string(epport.Protocol)
 				//svcname, err := c.driver.CreateSvc(namespace, ip, port, protocol)
-				srv, err := c.driver.CreateServer(namespace, ip)
+				srv, err := c.driver.CreateServer(clb.Namespace, ip)
 				if err != nil {
 					glog.Errorf("Create server %s failed: %v", srv, err)
 				}
 				//err = c.driver.BindSvcToLb(svcname, lbname, weight)
-				c.driver.BindServerToGroup(srv, svcgrp, int(port), weight)
+				c.driver.BindServerToGroup(srv, svcGroupName, port, weight)
 				if err != nil {
 					glog.Errorf("Bind svc to lb failed: %v", err)
 				}
@@ -255,25 +277,27 @@ func (c *CLBController)addBackendToCLB(namespace string, backend crdv1.ClassicLo
 	}
 }
 
-func (c *CLBController)updateClb(namespace string, lbname string, 
+func (c *CLBController)updateClb(newClb *crdv1.ClassicLoadBalance, 
 	backendsNew map[crdv1.ClassicLoadBalanceBackend]int, 
 	backendsOld map[crdv1.ClassicLoadBalanceBackend]int) {
+	
+	lbName := utils.GenerateLbNameCLB(newClb.Namespace, newClb.Spec.IP, 
+			newClb.Spec.Port, newClb.Spec.Protocol)	
+		
 	for backendNew, _ := range backendsNew {
 		if _, ok := backendsOld[backendNew]; !ok {
-			glog.V(2).Infof("CLB Update: need add backend %v to %s", backendNew, lbname)
-			c.addBackendToCLB(namespace, backendNew, lbname)
+			glog.V(2).Infof("CLB Update: need add backend %v to %s", backendNew, lbName)
+			c.addBackendToCLB(newClb, backendNew)
 		}
 	}
 	
 	for backendOld, _ := range backendsOld {
 		if _, ok := backendsNew[backendOld]; !ok {
-			glog.V(2).Infof("CLB Update: need remove backend %v from %s", backendOld, lbname)
-			
-			groupName := utils.GenerateSvcGroupNameCLB(namespace, backendOld.ServiceName)
-			c.driver.UnBindSvcGroupLb(groupName, lbname)
+			glog.V(2).Infof("CLB Update: need remove backend %v from %s", backendOld, lbName)
+			c.removeBackendFromCLB(newClb, backendOld)
 			
 			lbNameMap := c.clbSvcRef[backendOld.ServiceName]
-			delete(lbNameMap, lbname)
+			delete(lbNameMap, lbName)
 		}
 	}
 }
@@ -340,43 +364,96 @@ func (c *CLBController)deleteAndUnBindServer(namespace string, ipstr string, gro
 	return nil	
 }
 
-func (c *CLBController)updateEndpoints(namespace string, epName string, 
-	epsNew map[string]int, epsOld map[string]int){
-	groupName := utils.GenerateSvcGroupNameCLB(namespace, epName)
+//func (c *CLBController)updateEndpoints(namespace string, epName string, 
+//	epsNew map[string]int, epsOld map[string]int){
+//	groupName := utils.GenerateSvcGroupNameCLB(namespace, epName)
+//	for newips, _ := range epsNew {
+//		if _, ok := epsOld[newips]; !ok {
+//			glog.V(2).Infof("Need add Server %s on %s", newips, groupName)
+//			_ = c.createAndBindServer(namespace, newips, groupName)
+//		}
+//	}
+//	for oldips, _ := range epsOld {
+//		if _, ok := epsNew[oldips]; !ok {
+//			glog.V(2).Infof("Need del Server %s on %s", oldips, groupName)
+//			_ = c.deleteAndUnBindServer(namespace, oldips, groupName)
+//		}
+//	}
+//}
+	
+func (c *CLBController)updateEndpoints(svcName string, lbs []string, epsNew, epsOld map[string]int) {
 	for newips, _ := range epsNew {
 		if _, ok := epsOld[newips]; !ok {
-			glog.V(2).Infof("Need add Server %s on %s", newips, groupName)
-			_ = c.createAndBindServer(namespace, newips, groupName)
+			glog.V(2).Infof("Prepare add Server %s lbs %v", newips, lbs)
+			for _, lb := range lbs {
+				// TODO: move string join/split logic to utils
+				namespace := strings.Split(lb, ":")[0]
+				lbname := strings.Split(lb, ":")[1]
+				lbport := strings.Split(lb, ":")[2]
+				port := strings.Split(newips, ":")[1]
+				if lbport == port {
+					groupName := utils.GenerateSvcGroupNameCLB(namespace, lbname, svcName, port)
+					glog.V(2).Infof("Need add Server %s to group %s", newips, groupName)
+					_ = c.createAndBindServer(namespace, newips, groupName)
+				}
+			}
 		}
 	}
 	for oldips, _ := range epsOld {
 		if _, ok := epsNew[oldips]; !ok {
-			glog.V(2).Infof("Need del Server %s on %s", oldips, groupName)
-			_ = c.deleteAndUnBindServer(namespace, oldips, groupName)
+			glog.V(2).Infof("Prepare del Server %s from lbs %s", oldips, lbs)
+			for _, lb := range lbs {
+				// TODO: move string join/split logic to utils
+				namespace := strings.Split(lb, ":")[0]
+				lbname := strings.Split(lb, ":")[1]
+				lbport := strings.Split(lb, ":")[2]
+				port := strings.Split(oldips, ":")[1]
+				if lbport == port {
+					groupName := utils.GenerateSvcGroupNameCLB(namespace, lbname, svcName, port)
+					glog.V(2).Infof("Need del Server %s from group %s", oldips, groupName)
+					_ = c.deleteAndUnBindServer(namespace, oldips, groupName)
+				}
+			}			
 		}
-	}
-}
+	}		
+}	
 
 func (c *CLBController)onEpUpdate(oldObj, newObj interface{}) {
 	glog.V(4).Infof("Update-Ep: %v -> %v", oldObj, newObj)
-	glog.V(3).Infof("clbSvcRef: %v", c.clbSvcRef)
+	glog.V(4).Infof("clbSvcRef: %v", c.clbSvcRef)
 	if !reflect.DeepEqual(oldObj, newObj) {
 		oldep := oldObj.(*v1.Endpoints)
 		newep := newObj.(*v1.Endpoints)
-		glog.V(4).Infof("Update-Diff Ep: %s-> %s", oldep.Name , newep.Name)
-		
-		_, found := c.clbSvcRef[newep.Name]
-		if found {
-			glog.V(2).Infof("Ep %s have refcount with lb-operator", newep.Name)
-			epsNew := utils.GetEndpointMap(newep)
-			epsOld := utils.GetEndpointMap(oldep)
-			glog.V(2).Infof("NewEps: %v", epsNew)
-			glog.V(2).Infof("OldEps: %v", epsOld)
-			if !reflect.DeepEqual(epsNew, epsOld) {
-				glog.V(2).Infof("Need update clb configurations.")
-				c.updateEndpoints(newep.Namespace, newep.Name, epsNew, epsOld)
-			}
+				
+		LbSvcMap := utils.GetLbSvcMap(c.clbstore)
+		glog.V(4).Infof("LbSvcMap: %+v\n", LbSvcMap)
+		lbs, ok := LbSvcMap[newep.Name]
+		if !ok {
+			glog.V(4).Infof("Ignore service %s update.", newep.Name)
+			return
 		}
+		
+		epsNew := utils.GetEndpointMap(newep)
+		epsOld := utils.GetEndpointMap(oldep)
+		if !reflect.DeepEqual(epsNew, epsOld) {
+			glog.V(2).Infof("Need Update for service %s lbs %+v\n", oldep.Name, lbs)
+			c.updateEndpoints(newep.Name, lbs, epsNew, epsOld)
+		}		
+
+//		glog.V(2).Infof("Update-Diff Ep: %s-> %s", oldep.Name , newep.Name)
+//		
+//		_, found := c.clbSvcRef[newep.Name]
+//		if found {
+//			glog.V(2).Infof("Ep %s have refcount with lb-operator", newep.Name)
+//			epsNew := utils.GetEndpointMap(newep)
+//			epsOld := utils.GetEndpointMap(oldep)
+//			glog.V(2).Infof("NewEps: %v", epsNew)
+//			glog.V(2).Infof("OldEps: %v", epsOld)
+//			if !reflect.DeepEqual(epsNew, epsOld) {
+//				glog.V(2).Infof("Need update clb configurations.")
+//				c.updateEndpoints(newep.Namespace, newep.Name, epsNew, epsOld)
+//			}
+//		}
 	}
 }
 

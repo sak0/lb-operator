@@ -10,6 +10,7 @@ import (
 	"k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
@@ -69,6 +70,20 @@ func GetBackendMap(clb *crdv1.ClassicLoadBalance)map[crdv1.ClassicLoadBalanceBac
 		backendMap[backend] = 1
 	}
 	return backendMap
+}
+
+func GetLbSvcMap(clbstore cache.Store)map[string][]string{
+	lbsvcMap := make(map[string][]string)
+	
+	for _, store := range clbstore.List() {
+		clb := store.(*crdv1.ClassicLoadBalance)
+		for _, backend := range clb.Spec.Backends {
+			lbStr := clb.Namespace + ":" + clb.Name + ":" + backend.ServicePort
+			lbsvcMap[backend.ServiceName] = append(lbsvcMap[backend.ServiceName], lbStr)
+		}
+	}
+	
+	return lbsvcMap
 }
 
 func InClusterConfig() (*rest.Config, error) {

@@ -1,0 +1,8 @@
+FROM scratch
+
+COPY lb-operator /
+VOLUME /tmp
+
+ENTRYPOINT ["/lb-operator", "--port=8080"]
+
+EXPOSE 8080

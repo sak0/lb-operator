@@ -95,20 +95,26 @@ func GenerateSvcNameCLB(namespace string, ip string, port int32, protocol string
 	return svcName		
 }
 
-func GenerateSvcGroupNameCLB(namespace string, svcname string)string {
-	devHash := hashIp()
-	gpName := devHash + "_CLB_" + namespace + "_" + svcname
-	return gpName
-}
+//func GenerateSvcGroupNameCLB(namespace string, svcname string)string {
+//	devHash := hashIp()
+//	gpName := devHash + "_CLB_" + namespace + "_" + svcname
+//	return gpName
+//}
 
 func GenerateServerNameCLB(namespace string, ip string)string {
-	devHash := hashIp()
-	serverName := devHash + "_CLB_" + namespace + "_" + strings.Replace(ip, ".", "_", -1)
-	return serverName
+//	devHash := hashIp()
+//	serverName := devHash + "_CLB_" + namespace + "_" + strings.Replace(ip, ".", "_", -1)
+//	return serverName
+	return ip
 }
 
 func GeneratePortNameCLB(namespace string, ip string)string {
 	devHash := hashIp()
 	portName := devHash + "_CLB_" + namespace + "_" + strings.Replace(ip, ".", "_", -1)
 	return portName
+}
+
+func GenerateSvcGroupNameCLB(namespace, lbName, svcName, port string)string {
+	grpName := namespace + "_" + lbName + "_" + svcName + "_" + port
+	return grpName
 }										

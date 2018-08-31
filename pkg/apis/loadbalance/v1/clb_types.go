@@ -23,6 +23,7 @@ type ClassicLoadBalanceSpec struct {
 type ClassicLoadBalanceBackend struct {
 	Weight		int		`json:"weight", omitempty`
 	ServiceName	string	`json:"serviceName"`
+	ServicePort	string	`json:"servicePort"`
 }
 
 type ClassicLoadBalanceStatus struct {

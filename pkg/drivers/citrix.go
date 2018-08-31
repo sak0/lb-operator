@@ -22,7 +22,8 @@ const (
 type LbProvider interface {
 	CreateLb(string, string, string, string)(string, error)
 	DeleteLb(string, string, string, string)error
-	CreateSvcGroup(string, string)(string, error)
+	CreateSvcGroup(string)error
+	DeleteSvcGroup(string)error
 	BindSvcGroupLb(string, string)error
 	UnBindSvcGroupLb(string, string)error
 	CreateSvc(string, string, int32, string)(string, error)
@@ -81,9 +82,7 @@ func (lb *CitrixLb)CreateLb(namespace string, vip string, port string, protocol 
 	return lbName, nil
 }
 
-func (lb *CitrixLb)CreateSvcGroup(namespace string, svcname string)(string, error){
-	groupName := utils.GenerateSvcGroupNameCLB(namespace, svcname)
-	
+func (lb *CitrixLb)CreateSvcGroup(groupName string)error{	
 	glog.V(2).Infof("Citrix Driver CreateSvcGroup")
 	client, _ := netscaler.NewNitroClientFromEnv()
 	nsSvcGrp := citrixbasic.Servicegroup{
@@ -93,9 +92,24 @@ func (lb *CitrixLb)CreateSvcGroup(namespace string, svcname string)(string, erro
 	}
 	_, err := client.AddResource(netscaler.Servicegroup.Type(), groupName, &nsSvcGrp)
 	if err != nil {
-		return groupName, err
+		return err
 	}
-	return groupName, nil
+	return nil
+}
+
+func (lb *CitrixLb)DeleteSvcGroup(groupName string)error{	
+	glog.V(2).Infof("Citrix Driver DeleteSvcGroup")
+	client, _ := netscaler.NewNitroClientFromEnv()
+//	nsSvcGrp := citrixbasic.Servicegroup{
+//		Servicegroupname	: groupName,
+//		//TODO: resolve k8s svc only support tcp udp protocol
+//		Servicetype			: "TCP",
+//	}
+	err := client.DeleteResource(netscaler.Servicegroup.Type(), groupName)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (lb *CitrixLb)BindSvcGroupLb(groupname string, lbname string)error{
